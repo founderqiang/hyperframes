@@ -6,6 +6,7 @@
  */
 
 import { BROWSER_GPU_NOT_SOFTWARE } from "@hyperframes/engine";
+import { GENERIC_FAMILIES, iterateFontFamilyDeclarations } from "../deterministicFonts.js";
 
 /**
  * Re-export the BROWSER_GPU_NOT_SOFTWARE code so distributed adapters and
@@ -13,6 +14,13 @@ import { BROWSER_GPU_NOT_SOFTWARE } from "@hyperframes/engine";
  * cross-package import.
  */
 export { BROWSER_GPU_NOT_SOFTWARE } from "@hyperframes/engine";
+
+/**
+ * Re-export the shared font-family parser. The plan-time validator and the
+ * @font-face injector consume the same surface, so the parser lives next to
+ * the data.
+ */
+export { parseFontFamilyValue } from "../deterministicFonts.js";
 
 /**
  * Typed plan-validation error. Workflow adapters key retry policies off the
@@ -47,6 +55,14 @@ export interface ValidateNoGpuEncodeInput {
 }
 
 /**
+ * Typed code for {@link validateNoSystemFonts}. Distributed chunk workers
+ * render in a Linux container without host-OS fonts; compositions declaring
+ * `-apple-system` / `system-ui` as a primary family would render differently
+ * on the worker, breaking byte-identical retries.
+ */
+export const SYSTEM_FONT_USED = "SYSTEM_FONT_USED";
+
+/**
  * Reject any config that would let GPU encode or hardware-GL slip into a
  * distributed render. Throws {@link PlanValidationError} with
  * `code === BROWSER_GPU_NOT_SOFTWARE` when either gate trips. The message
@@ -71,6 +87,37 @@ export function validateNoGpuEncode(config: ValidateNoGpuEncodeInput): void {
         `config.browserGpuMode === ${JSON.stringify(config.browserGpuMode)}. ` +
         `Hardware GL is bitwise unstable across drivers. Set browserGpuMode="software" ` +
         `so Chrome launches with --use-gl=swiftshader.`,
+    );
+  }
+}
+
+/**
+ * Reject a compiled HTML document whose top-priority font-family resolves to
+ * a host-OS / generic family. Throws {@link PlanValidationError} with
+ * `code === SYSTEM_FONT_USED` and the offending family in the message.
+ *
+ * Inspects the FIRST entry of each font-family declaration: that's the
+ * family the browser tries to use. Subsequent entries are CSS fallbacks,
+ * and a generic fallback is fine and conventional — so
+ * `font-family: "Inter", -apple-system, sans-serif` passes and
+ * `font-family: -apple-system, BlinkMacSystemFont, "Segoe UI"` fails.
+ *
+ * Reads font-family surfaces via `iterateFontFamilyDeclarations` so the
+ * @font-face injector and this validator scan the same regions.
+ */
+export function validateNoSystemFonts(compiledHtml: string): void {
+  for (const { surface, declaration, families } of iterateFontFamilyDeclarations(compiledHtml)) {
+    if (families.length === 0) continue;
+    const primaryRaw = families[0]!;
+    if (!GENERIC_FAMILIES.has(primaryRaw.toLowerCase())) continue;
+    throw new PlanValidationError(
+      SYSTEM_FONT_USED,
+      `[planValidation] Composition declares a host-OS / generic primary ${surface}: ` +
+        `${JSON.stringify(primaryRaw)} (full declaration: ${JSON.stringify(declaration.trim())}). ` +
+        `Distributed chunk workers render in a Linux container and cannot produce byte-identical ` +
+        `output for fonts that resolve to host system installations. Use a deterministic web font ` +
+        `(e.g. Inter, Montserrat, or another @fontsource family) as the primary family; generic ` +
+        `names like "sans-serif" / "-apple-system" / "system-ui" are only allowed as fallbacks.`,
     );
   }
 }

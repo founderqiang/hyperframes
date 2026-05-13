@@ -15,7 +15,14 @@ type CanonicalFontSpec = {
   faces: FontFaceSpec[];
 };
 
-const GENERIC_FAMILIES = new Set([
+/**
+ * Family names that resolve to a host-OS font (or a CSS generic that the
+ * browser substitutes with a host-OS font). Exported so plan-time validators
+ * can reject them as primary families in distributed renders.
+ *
+ * Lower-cased — call `normalizeFamilyName` on declared values before lookup.
+ */
+export const GENERIC_FAMILIES: ReadonlySet<string> = new Set([
   "sans-serif",
   "serif",
   "monospace",
@@ -31,6 +38,44 @@ const GENERIC_FAMILIES = new Set([
   "-apple-system",
   "blinkmacsystemfont",
 ]);
+
+/**
+ * Parse a single `font-family` value (e.g. `"Inter", -apple-system,
+ * sans-serif`) into a list of unquoted family names in declaration order.
+ * Whitespace and surrounding `"…"` / `'…'` quotes are stripped; case is
+ * preserved. Pass each name through `normalizeFamilyName` for case-
+ * insensitive comparisons.
+ */
+export function parseFontFamilyValue(value: string): string[] {
+  return value
+    .split(",")
+    .map((piece) => piece.trim().replace(/^['"]/, "").replace(/['"]$/, "").trim())
+    .filter((piece) => piece.length > 0);
+}
+
+/** Surfaces font-family is declared on in served HTML. */
+export type FontFamilySurface = "font-family" | "data-font-family";
+
+/**
+ * Iterate every font-family declaration in a compiled HTML document. Yields
+ * each declaration's surface (CSS property vs HTML attribute), raw value,
+ * and the parsed family list. Used by both the @font-face injector and the
+ * plan-time validator so they read the same surface area.
+ */
+export function* iterateFontFamilyDeclarations(
+  html: string,
+): Generator<{ surface: FontFamilySurface; declaration: string; families: string[] }, void, void> {
+  const sources: ReadonlyArray<readonly [RegExp, FontFamilySurface]> = [
+    [/font-family\s*:\s*([^;}{]+)[;}]?/gi, "font-family"],
+    [/data-font-family=["']([^"']+)["']/gi, "data-font-family"],
+  ];
+  for (const [regex, surface] of sources) {
+    for (const match of html.matchAll(regex)) {
+      const declaration = match[1] ?? "";
+      yield { surface, declaration, families: parseFontFamilyValue(declaration) };
+    }
+  }
+}
 
 const CANONICAL_FONTS: Record<string, CanonicalFontSpec> = {
   inter: {
@@ -179,32 +224,13 @@ function extractExistingFontFaces(html: string): Set<string> {
 
 function extractRequestedFontFamilies(html: string): Map<string, string> {
   const requested = new Map<string, string>();
-  const addFamilyList = (value: string) => {
-    for (const family of value.split(",")) {
-      const originalCase = family
-        .trim()
-        .replace(/^['"]|['"]$/g, "")
-        .trim();
+  for (const { families } of iterateFontFamilyDeclarations(html)) {
+    for (const originalCase of families) {
       const normalized = originalCase.toLowerCase();
-      if (!normalized || GENERIC_FAMILIES.has(normalized)) {
-        continue;
-      }
-      if (!requested.has(normalized)) {
-        requested.set(normalized, originalCase);
-      }
+      if (!normalized || GENERIC_FAMILIES.has(normalized)) continue;
+      if (!requested.has(normalized)) requested.set(normalized, originalCase);
     }
-  };
-
-  const fontFamilyRegex = /font-family\s*:\s*([^;}{]+)[;}]?/gi;
-  for (const match of html.matchAll(fontFamilyRegex)) {
-    addFamilyList(match[1] || "");
   }
-
-  const dataFontFamilyRegex = /data-font-family=["']([^"']+)["']/gi;
-  for (const match of html.matchAll(dataFontFamilyRegex)) {
-    addFamilyList(match[1] || "");
-  }
-
   return requested;
 }
 

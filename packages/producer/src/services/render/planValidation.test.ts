@@ -10,7 +10,10 @@ import { describe, expect, it } from "bun:test";
 import {
   BROWSER_GPU_NOT_SOFTWARE,
   PlanValidationError,
+  SYSTEM_FONT_USED,
+  parseFontFamilyValue,
   validateNoGpuEncode,
+  validateNoSystemFonts,
 } from "./planValidation.js";
 
 describe("PlanValidationError", () => {
@@ -85,5 +88,124 @@ describe("validateNoGpuEncode", () => {
     }
     expect(caught).toBeInstanceOf(PlanValidationError);
     expect((caught as Error).message).toContain("GPU encode is banned");
+  });
+});
+
+describe("parseFontFamilyValue", () => {
+  it("splits a comma-separated list and strips whitespace + quotes", () => {
+    expect(parseFontFamilyValue(`"Inter", -apple-system, sans-serif`)).toEqual([
+      "Inter",
+      "-apple-system",
+      "sans-serif",
+    ]);
+  });
+
+  it("strips single quotes too", () => {
+    expect(parseFontFamilyValue(`'My Custom Font', serif`)).toEqual(["My Custom Font", "serif"]);
+  });
+
+  it("ignores empty entries (trailing commas)", () => {
+    expect(parseFontFamilyValue(`Inter,,sans-serif`)).toEqual(["Inter", "sans-serif"]);
+  });
+
+  it("handles a single value with no commas", () => {
+    expect(parseFontFamilyValue(`"My Font"`)).toEqual(["My Font"]);
+  });
+
+  it("handles an all-whitespace value as empty", () => {
+    expect(parseFontFamilyValue(`   `)).toEqual([]);
+  });
+});
+
+describe("validateNoSystemFonts", () => {
+  const CLEAN_HTML = `<!doctype html>
+<html><head><style>
+  body { font-family: "Inter", -apple-system, sans-serif; margin: 0; }
+  h1 { font-family: "Montserrat", "Helvetica Neue", sans-serif; }
+</style></head>
+<body><h1 data-font-family="Outfit, sans-serif">Hello</h1></body>
+</html>`;
+
+  it("passes a composition with deterministic web fonts as primary", () => {
+    expect(() => validateNoSystemFonts(CLEAN_HTML)).not.toThrow();
+  });
+
+  it("passes when font-family is absent entirely (plain text composition)", () => {
+    expect(() =>
+      validateNoSystemFonts(`<!doctype html><html><body><p>no fonts here</p></body></html>`),
+    ).not.toThrow();
+  });
+
+  it("throws SYSTEM_FONT_USED when primary family is `-apple-system`", () => {
+    const offending = `<style>body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; }</style>`;
+    let caught: unknown;
+    try {
+      validateNoSystemFonts(offending);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PlanValidationError);
+    expect((caught as PlanValidationError).code).toBe(SYSTEM_FONT_USED);
+    expect((caught as PlanValidationError).code).toBe("SYSTEM_FONT_USED");
+    expect((caught as Error).message).toContain(`"-apple-system"`);
+    expect((caught as Error).message).toContain("font-family");
+  });
+
+  it("throws SYSTEM_FONT_USED when primary family is `system-ui`", () => {
+    const offending = `<div style="font-family: system-ui, sans-serif">text</div>`;
+    let caught: unknown;
+    try {
+      validateNoSystemFonts(offending);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PlanValidationError);
+    expect((caught as PlanValidationError).code).toBe(SYSTEM_FONT_USED);
+    expect((caught as Error).message).toContain(`"system-ui"`);
+  });
+
+  it("throws SYSTEM_FONT_USED when primary family is `sans-serif` (CSS generic alone)", () => {
+    const offending = `<style>.x { font-family: sans-serif; }</style>`;
+    let caught: unknown;
+    try {
+      validateNoSystemFonts(offending);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PlanValidationError);
+    expect((caught as PlanValidationError).code).toBe(SYSTEM_FONT_USED);
+    expect((caught as Error).message).toContain(`"sans-serif"`);
+  });
+
+  it("treats data-font-family= as a valid surface for the same check", () => {
+    const offending = `<h1 data-font-family="ui-monospace, monospace">hi</h1>`;
+    let caught: unknown;
+    try {
+      validateNoSystemFonts(offending);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PlanValidationError);
+    expect((caught as PlanValidationError).code).toBe(SYSTEM_FONT_USED);
+    expect((caught as Error).message).toContain("data-font-family");
+  });
+
+  it("is case-insensitive (`SYSTEM-UI` is the same as `system-ui`)", () => {
+    const offending = `<style>p { font-family: SYSTEM-UI, sans-serif; }</style>`;
+    let caught: unknown;
+    try {
+      validateNoSystemFonts(offending);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PlanValidationError);
+    expect((caught as PlanValidationError).code).toBe(SYSTEM_FONT_USED);
+  });
+
+  it("accepts generic families when used only as fallbacks", () => {
+    // The whole point: `font-family: "Inter", -apple-system, sans-serif` is
+    // the canonical fallback chain. We want this to pass.
+    const ok = `<style>body { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif; }</style>`;
+    expect(() => validateNoSystemFonts(ok)).not.toThrow();
   });
 });
