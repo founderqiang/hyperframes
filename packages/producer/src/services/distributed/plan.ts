@@ -24,7 +24,7 @@
  * never have to handle them.
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type CanvasResolution } from "@hyperframes/core";
 import { type EngineConfig, resolveConfig } from "@hyperframes/engine";
@@ -491,6 +491,26 @@ export async function plan(
   const workDir = join(planDir, ".plan-work");
   if (!existsSync(workDir)) mkdirSync(workDir, { recursive: true });
   const compiledDir = join(workDir, "compiled");
+
+  // Pre-seed the compiled directory with the composition's local assets
+  // (CSS, JS, images, fonts, etc. referenced by relative URL from the
+  // entry HTML). The in-process renderer's file server serves these
+  // straight from `projectDir`, so they don't need to be in the compiled
+  // tree there. The distributed chunk worker's file server, by contrast,
+  // serves ONLY from `<planDir>/compiled/` — without these assets, a
+  // composition like `<link rel="stylesheet" href="style.css">` resolves
+  // to a 404 and the rendered chunk is the page's unstyled fallback.
+  //
+  // `compileStage`'s `writeCompiledArtifacts` runs after this and
+  // overwrites the entry HTML with the compiled bytes (and writes
+  // sub-compositions + external-projectDir assets). Everything we pre-seed
+  // here is local to `projectDir` and stays in the planDir as the
+  // canonical asset bundle the chunk worker will serve.
+  mkdirSync(compiledDir, { recursive: true });
+  // `dereference: true` resolves symlinks before copying — planDirs are
+  // shipped across process / machine boundaries (S3, Lambda /tmp,
+  // worker pods), and symlinks won't survive the round-trip.
+  cpSync(projectDir, compiledDir, { recursive: true, dereference: true });
 
   // The compiled directory lives at `<planDir>/compiled/` in the final
   // layout. The stages write under `<planDir>/.plan-work/compiled/`; we

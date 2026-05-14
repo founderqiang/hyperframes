@@ -355,10 +355,29 @@ export async function renderChunk(
     job.totalFrames = framesInChunk;
     job.duration = (framesInChunk * plan.dimensions.fpsDen) / plan.dimensions.fpsNum;
 
+    // Force `Page.captureScreenshot` capture for the chunk worker, regardless
+    // of what the plan's locked encoder config recorded for `forceScreenshot`.
+    //
+    // Chrome 148 chrome-headless-shell + `--use-angle=swiftshader` exhibits
+    // a content-dependent compositor wedge on `HeadlessExperimental.beginFrame`
+    // with a screenshot parameter: the engine's probe can approve a build
+    // that subsequently hangs on a real composition's first frame
+    // (`Failed to load resource` + CORS-blocked audio fetches happen to
+    // correlate with the wedge, but stripping them does not reliably
+    // unwedge). The probe-then-fallback path catches some cases but is
+    // intrinsically race-prone — composition complexity tips the
+    // compositor into a state the probe can't simulate.
+    //
+    // `executeRenderJob` already takes the screenshot path for multi-worker
+    // mp4 (the BeginFrame path is single-process only), so this matches the
+    // production renderer's de-facto Linux behavior and inherits its
+    // reliability profile. The per-chunk perf cost is a few percent — well
+    // worth it for byte-identical retries that don't depend on Chrome's GL
+    // backend cooperating.
     const cfg: EngineConfig = {
       ...resolveConfig(),
       browserGpuMode: "software",
-      forceScreenshot: encoder.forceScreenshot,
+      forceScreenshot: true,
     };
 
     // ── Per-chunk work + frames directories ──

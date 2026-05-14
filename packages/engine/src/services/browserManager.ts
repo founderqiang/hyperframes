@@ -98,35 +98,126 @@ function stripBeginFrameFlags(args: string[]): string[] {
 }
 
 /**
- * Probe whether the browser still speaks HeadlessExperimental.beginFrame.
+ * Probe whether the browser still speaks HeadlessExperimental.beginFrame
+ * for the screenshot path the real capture loop uses.
  *
- * Recent chrome-headless-shell builds (observed on 147) expose the domain
- * well enough that HeadlessExperimental.enable succeeds but drop the
- * beginFrame method itself — the capture loop then dies on first frame with
- * `'HeadlessExperimental.beginFrame' wasn't found`. So we probe BOTH: enable
- * + one cheap beginFrame raced against a 2s timeout. In beginframe-control
- * mode the command completes as soon as the compositor acks, so a real
- * supported browser returns well under the timeout.
+ * Recent chrome-headless-shell builds have produced two distinct failure
+ * modes:
  *
- * Any failure (method missing, timeout, protocol error) is treated as
- * unsupported. Real errors after launch would surface in the warmup loop and
- * fall out through the caller's try/catch.
+ *   - chrome-headless-shell 147 dropped the method entirely; `enable`
+ *     succeeds but the first beginFrame call errors out with
+ *     `'HeadlessExperimental.beginFrame' wasn't found`.
+ *
+ *   - chrome-headless-shell 148 with `--use-angle=swiftshader` keeps the
+ *     method AND the cheap `noDisplayUpdates:true` form, but the compositor
+ *     silently can't raster: beginFrame with a `screenshot` parameter
+ *     returns near-instantly with empty `screenshotData` and `hasDamage:false`
+ *     even on frame 0 (which should always have damage). The capture loop
+ *     subsequently hangs on later calls because Chrome's compositor enters
+ *     a state where pending frames pile up.
+ *
+ * So we probe in three steps, each raced against a 2s timeout:
+ *
+ *   1. `enable` + one cheap `noDisplayUpdates:true` beginFrame — catches
+ *     the 147-style missing-method failure.
+ *   2. Navigate to a tiny inline page (`data:` URL with a colored div) so
+ *     the compositor is in a non-trivial state. about:blank is
+ *     special-cased in Chrome and won't trip the 148 soft failure.
+ *   3. One beginFrame WITH a tiny `screenshot` request — and we assert the
+ *     result actually contains screenshot bytes. A response with no
+ *     `screenshotData` is treated as unsupported.
+ *
+ * Any failure (method missing, timeout, protocol error, empty raster) is
+ * treated as unsupported. The caller then re-launches without the
+ * begin-frame control flags and falls back to `Page.captureScreenshot`,
+ * which works on every build we've seen — including the ones whose
+ * BeginFrame path is broken.
  */
+/**
+ * Result of a single beginFrame probe call. `wedged` means the call
+ * returned in a normal time window but with no rasterized output — Chrome
+ * 148+SwiftShader does this when its compositor can't produce a raster
+ * but the protocol handler is still alive.
+ */
+interface ProbeBeginFrameResult {
+  /** True iff the call returned within the timeout. */
+  returned: boolean;
+  /** True iff the call returned with a non-empty screenshot. */
+  rastered: boolean;
+}
+
 async function probeBeginFrameSupport(browser: Browser): Promise<boolean> {
   let page;
   try {
     page = await browser.newPage();
     const client = await page.createCDPSession();
     await client.send("HeadlessExperimental.enable");
-    const beginFrame = client.send("HeadlessExperimental.beginFrame", {
-      frameTimeTicks: 0,
-      interval: 33,
-      noDisplayUpdates: true,
-    });
-    const timeout = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("beginFrame probe timeout")), 2000),
-    );
-    await Promise.race([beginFrame, timeout]);
+    const probeWithTimeout = async (
+      params: Parameters<typeof client.send<"HeadlessExperimental.beginFrame">>[1],
+      label: string,
+    ): Promise<ProbeBeginFrameResult> => {
+      const call = client.send("HeadlessExperimental.beginFrame", params);
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`beginFrame probe timeout (${label})`)), 2000),
+      );
+      const result = await Promise.race([call, timeout]);
+      const screenshotData =
+        result && typeof result === "object" && "screenshotData" in result
+          ? (result as { screenshotData?: string }).screenshotData
+          : undefined;
+      return {
+        returned: true,
+        rastered: typeof screenshotData === "string" && screenshotData.length > 0,
+      };
+    };
+    // Step 1: method exists. `noDisplayUpdates:true` is the cheap form
+    // that pre-148 builds dropping the method would fail on.
+    await probeWithTimeout({ frameTimeTicks: 0, interval: 33, noDisplayUpdates: true }, "method");
+    // Step 2: method can actually produce a raster. The screenshot variant
+    // is what the real capture path uses every frame.
+    //
+    // Chrome 148 + SwiftShader in chrome-headless-shell exhibits a soft
+    // failure here: the call returns near-instantly with no
+    // `screenshotData` (and `hasDamage:false` even though frame 0 should
+    // always have damage). The protocol is alive, but the compositor
+    // can't actually rasterize. We treat that as unsupported so the
+    // caller falls back to `Page.captureScreenshot`, which works on the
+    // same browser.
+    //
+    // Navigate to an inline page sized to match the launch viewport so
+    // the compositor state lines up with what the real capture loop hits
+    // after its `page.goto`. about:blank is special-cased in Chrome and
+    // doesn't trip the same wedge.
+    await page.setViewport({ width: 320, height: 240 }).catch(() => undefined);
+    await page
+      .goto(
+        "data:text/html,<!doctype html><html><body style='margin:0;width:320px;height:240px;background:#222'><div style='width:320px;height:240px;background:#0af;font:40px sans-serif'>probe</div></body></html>",
+        { waitUntil: "domcontentloaded", timeout: 5000 },
+      )
+      .catch(() => undefined);
+    // Probe multiple beginFrame screenshots in succession. Chrome 148's
+    // wedged-compositor case is non-deterministic: the first call may
+    // return a real raster while subsequent calls return empty. The
+    // real capture loop sends 60 LOCKED_WARMUP_TICKS + per-frame
+    // screenshots, so any wedge that emerges after a few rapid calls
+    // will hang the real render. Three back-to-back probes — each
+    // raced against a 2 s timeout and asserted to carry a real raster
+    // — catches every wedge mode we've observed.
+    for (let i = 0; i < 3; i++) {
+      const probeResult = await probeWithTimeout(
+        {
+          frameTimeTicks: 33 * (i + 1),
+          interval: 33,
+          screenshot: { format: "jpeg", quality: 1 },
+        },
+        `screenshot${i}`,
+      );
+      if (!probeResult.rastered) {
+        throw new Error(
+          `beginFrame probe ${i} returned without a raster — Chrome 148+SwiftShader-style soft failure`,
+        );
+      }
+    }
     await client.detach().catch(() => {});
     return true;
   } catch {
