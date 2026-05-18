@@ -64,9 +64,10 @@ export function scaleIframeToFit(
   compositionWidth: number,
   compositionHeight: number,
 ): void {
-  const rect = playerElement.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const scale = Math.min(rect.width / compositionWidth, rect.height / compositionHeight);
+  const w = playerElement.offsetWidth;
+  const h = playerElement.offsetHeight;
+  if (w === 0 || h === 0) return;
+  const scale = Math.min(w / compositionWidth, h / compositionHeight);
   iframe.style.width = `${compositionWidth}px`;
   iframe.style.height = `${compositionHeight}px`;
   iframe.style.transform = `translate(-50%, -50%) scale(${scale})`;

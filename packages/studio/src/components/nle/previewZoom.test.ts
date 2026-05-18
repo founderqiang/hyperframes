@@ -99,21 +99,23 @@ describe("clampPreviewPan", () => {
     });
   });
 
-  it("allows overscroll even when only one axis overflows", () => {
-    expect(
-      clampPreviewPan({
-        panX: 120,
-        panY: -90,
-        zoomPercent: 107.25,
-        viewportWidth: 1352,
-        viewportHeight: 682,
-        contentWidth: 1184,
-        contentHeight: 666,
-      }),
-    ).toEqual({
-      panX: PREVIEW_PAN_OVERSCROLL_PX,
-      panY: -(16.142499999999984 + PREVIEW_PAN_OVERSCROLL_PX),
+  it("allows pan range for under-fitting and overflowing axes", () => {
+    const result = clampPreviewPan({
+      panX: 120,
+      panY: -90,
+      zoomPercent: 107.25,
+      viewportWidth: 1352,
+      viewportHeight: 682,
+      contentWidth: 1184,
+      contentHeight: 666,
     });
+
+    const scale = 1.0725;
+    const expectedMaxPanX = Math.abs(1184 * scale - 1352) / 2 + PREVIEW_PAN_OVERSCROLL_PX;
+    const expectedMaxPanY = Math.abs(666 * scale - 682) / 2 + PREVIEW_PAN_OVERSCROLL_PX;
+
+    expect(result.panX).toBeCloseTo(expectedMaxPanX, 4);
+    expect(result.panY).toBeCloseTo(-expectedMaxPanY, 4);
   });
 });
 
@@ -186,6 +188,53 @@ describe("resolvePreviewWheelZoom", () => {
     expect(next.zoomPercent).toBeCloseTo(MIN_PREVIEW_ZOOM_PERCENT, 0);
     expect(next.panX).toBe(20);
     expect(next.panY).toBe(20);
+  });
+
+  it("zooms toward the cursor when cursorX/cursorY are provided", () => {
+    const next = resolvePreviewWheelZoom({
+      state: DEFAULT_PREVIEW_ZOOM,
+      deltaY: -5,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      cursorX: 200,
+      cursorY: 100,
+    });
+
+    expect(next.zoomPercent).toBeGreaterThan(100);
+    expect(next.panX).toBeLessThan(0);
+    expect(next.panY).toBeLessThan(0);
+  });
+
+  it("keeps pan at zero when cursor is at viewport center", () => {
+    const next = resolvePreviewWheelZoom({
+      state: DEFAULT_PREVIEW_ZOOM,
+      deltaY: -5,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      cursorX: 0,
+      cursorY: 0,
+    });
+
+    expect(next.zoomPercent).toBeGreaterThan(100);
+    expect(next.panX).toBe(0);
+    expect(next.panY).toBe(0);
+  });
+
+  it("scales pan proportionally when cursor is at center", () => {
+    const next = resolvePreviewWheelZoom({
+      state: { zoomPercent: 200, panX: 50, panY: 30 },
+      deltaY: -5,
+      viewportWidth: 800,
+      viewportHeight: 600,
+      contentWidth: 800,
+      contentHeight: 450,
+      cursorX: 0,
+      cursorY: 0,
+    });
+
+    const ratio = next.zoomPercent / 200;
+    expect(next.panX).toBeCloseTo(50 * ratio, 1);
+    expect(next.panY).toBeCloseTo(30 * ratio, 1);
   });
 });
 

@@ -69,9 +69,9 @@ export function clampPreviewPan(input: {
   const contentWidth = input.contentWidth ?? input.viewportWidth;
   const contentHeight = input.contentHeight ?? input.viewportHeight;
   const maxPanX =
-    Math.max(0, (contentWidth * scale - input.viewportWidth) / 2) + PREVIEW_PAN_OVERSCROLL_PX;
+    Math.abs(contentWidth * scale - input.viewportWidth) / 2 + PREVIEW_PAN_OVERSCROLL_PX;
   const maxPanY =
-    Math.max(0, (contentHeight * scale - input.viewportHeight) / 2) + PREVIEW_PAN_OVERSCROLL_PX;
+    Math.abs(contentHeight * scale - input.viewportHeight) / 2 + PREVIEW_PAN_OVERSCROLL_PX;
   return {
     panX: Math.min(maxPanX, Math.max(-maxPanX, input.panX)),
     panY: Math.min(maxPanY, Math.max(-maxPanY, input.panY)),
@@ -85,14 +85,26 @@ export function resolvePreviewWheelZoom(input: {
   viewportHeight: number;
   contentWidth?: number;
   contentHeight?: number;
+  cursorX?: number;
+  cursorY?: number;
 }): PreviewZoomState {
-  const nextZoomPercent = getPreviewWheelZoomPercent(
-    input.deltaY,
-    clampPreviewZoomPercent(input.state.zoomPercent),
-  );
+  const oldZoom = clampPreviewZoomPercent(input.state.zoomPercent);
+  const nextZoomPercent = getPreviewWheelZoomPercent(input.deltaY, oldZoom);
+  const oldScale = oldZoom / 100;
+  const newScale = nextZoomPercent / 100;
+
+  let panX = input.state.panX;
+  let panY = input.state.panY;
+
+  if (input.cursorX !== undefined && input.cursorY !== undefined && Math.abs(oldScale) > 1e-6) {
+    const ratio = newScale / oldScale;
+    panX = input.cursorX * (1 - ratio) + panX * ratio;
+    panY = input.cursorY * (1 - ratio) + panY * ratio;
+  }
+
   const pan = clampPreviewPan({
-    panX: input.state.panX,
-    panY: input.state.panY,
+    panX,
+    panY,
     zoomPercent: nextZoomPercent,
     viewportWidth: input.viewportWidth,
     viewportHeight: input.viewportHeight,

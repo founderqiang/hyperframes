@@ -103,6 +103,7 @@ export const NLEPreview = memo(function NLEPreview({
   const retiringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const zoomRef = useRef<PreviewZoomState>(loadInitialZoom());
+  const [settledZoom, setSettledZoom] = useState<PreviewZoomState>(() => zoomRef.current);
   const hudRef = useRef<HTMLDivElement>(null);
   const hudTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -138,17 +139,20 @@ export const NLEPreview = memo(function NLEPreview({
     return () => observer.disconnect();
   }, [portrait]);
 
+  const stageSizeRef = useRef(stageSize);
+  stageSizeRef.current = stageSize;
+
   const writeTransform = useCallback((state: PreviewZoomState) => {
     const stage = stageRef.current;
     if (!stage) return;
     const s = toDomPrecision(state.zoomPercent / 100);
     const px = toDomPrecision(state.panX);
     const py = toDomPrecision(state.panY);
-    stage.style.transform = `translate(${px}px, ${py}px) scale(${s})`;
+    stage.style.transform = `translate3d(${px}px, ${py}px, 0) scale(${s})`;
   }, []);
 
-  const applyZoom = useCallback(
-    (next: PreviewZoomState) => {
+  const applyTransform = useCallback(
+    (next: PreviewZoomState, showHud: boolean) => {
       const clamped: PreviewZoomState = {
         zoomPercent: clampPreviewZoomPercent(next.zoomPercent),
         panX: Number.isFinite(next.panX) ? next.panX : 0,
@@ -156,7 +160,7 @@ export const NLEPreview = memo(function NLEPreview({
       };
       zoomRef.current = clamped;
 
-      if (!zoomingRef.current) {
+      if (showHud && !zoomingRef.current) {
         zoomingRef.current = true;
         const hud = hudRef.current;
         if (hud) hud.style.opacity = "1";
@@ -169,17 +173,30 @@ export const NLEPreview = memo(function NLEPreview({
         zoomingRef.current = false;
         const final = zoomRef.current;
         writeStudioUiPreferences({ previewZoom: final });
-        const hud = hudRef.current;
-        if (hud) {
-          hud.textContent = isPreviewAtFit(final) ? "Fit" : `${Math.round(final.zoomPercent)}%`;
-          if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
-          hudTimerRef.current = setTimeout(() => {
-            if (hudRef.current) hudRef.current.style.opacity = "0";
-          }, ZOOM_HUD_TIMEOUT_MS);
+        setSettledZoom(final);
+        if (showHud) {
+          const hud = hudRef.current;
+          if (hud) {
+            hud.textContent = isPreviewAtFit(final) ? "Fit" : `${Math.round(final.zoomPercent)}%`;
+            if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
+            hudTimerRef.current = setTimeout(() => {
+              if (hudRef.current) hudRef.current.style.opacity = "0";
+            }, ZOOM_HUD_TIMEOUT_MS);
+          }
         }
       }, ZOOM_SETTLE_MS);
     },
     [writeTransform],
+  );
+
+  const applyZoom = useCallback(
+    (next: PreviewZoomState) => applyTransform(next, true),
+    [applyTransform],
+  );
+
+  const applyPan = useCallback(
+    (next: PreviewZoomState) => applyTransform(next, false),
+    [applyTransform],
   );
 
   if (refreshKey !== prevRefreshKeyRef.current) {
@@ -228,13 +245,18 @@ export const NLEPreview = memo(function NLEPreview({
         event.preventDefault();
         event.stopPropagation();
 
+        const sz = stageSizeRef.current;
+        const cursorX = event.clientX - (rect.left + rect.width / 2);
+        const cursorY = event.clientY - (rect.top + rect.height / 2);
         const next = resolvePreviewWheelZoom({
           state: zoomRef.current,
           deltaY: event.deltaY,
           viewportWidth: rect.width,
           viewportHeight: rect.height,
-          contentWidth: stageSize.width,
-          contentHeight: stageSize.height,
+          contentWidth: sz.width,
+          contentHeight: sz.height,
+          cursorX,
+          cursorY,
         });
         applyZoom(next);
         return;
@@ -245,21 +267,22 @@ export const NLEPreview = memo(function NLEPreview({
       event.preventDefault();
       event.stopPropagation();
 
+      const sz = stageSizeRef.current;
       const next = resolvePreviewWheelPan({
         state: zoomRef.current,
         deltaX: event.deltaX,
         deltaY: event.deltaY,
         viewportWidth: rect.width,
         viewportHeight: rect.height,
-        contentWidth: stageSize.width,
-        contentHeight: stageSize.height,
+        contentWidth: sz.width,
+        contentHeight: sz.height,
       });
-      applyZoom(next);
+      applyPan(next);
     };
 
     document.addEventListener("wheel", handleWheel, { passive: false, capture: true });
     return () => document.removeEventListener("wheel", handleWheel, { capture: true });
-  }, [applyZoom, stageSize.height, stageSize.width]);
+  }, [applyZoom, applyPan]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -320,16 +343,17 @@ export const NLEPreview = memo(function NLEPreview({
       if (!drag || !viewport || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
       const rect = viewport.getBoundingClientRect();
+      const sz = stageSizeRef.current;
       const pan = clampPreviewPan({
         panX: drag.originX + event.clientX - drag.startX,
         panY: drag.originY + event.clientY - drag.startY,
         zoomPercent: zoomRef.current.zoomPercent,
         viewportWidth: rect.width,
         viewportHeight: rect.height,
-        contentWidth: stageSize.width,
-        contentHeight: stageSize.height,
+        contentWidth: sz.width,
+        contentHeight: sz.height,
       });
-      applyZoom({ ...zoomRef.current, ...pan });
+      applyPan({ ...zoomRef.current, ...pan });
     };
 
     const finishDrag = (event: PointerEvent) => {
@@ -357,7 +381,7 @@ export const NLEPreview = memo(function NLEPreview({
       document.removeEventListener("pointercancel", finishDrag, { capture: true });
       document.removeEventListener("auxclick", handleAuxClick, { capture: true });
     };
-  }, [applyZoom, stageSize.height, stageSize.width]);
+  }, [applyPan]);
 
   const initial = zoomRef.current;
 
@@ -376,7 +400,7 @@ export const NLEPreview = memo(function NLEPreview({
             style={{
               width: `${stageSize.width}px`,
               height: `${stageSize.height}px`,
-              transform: `translate(${toDomPrecision(initial.panX)}px, ${toDomPrecision(initial.panY)}px) scale(${toDomPrecision(initial.zoomPercent / 100)})`,
+              transform: `translate3d(${toDomPrecision(initial.panX)}px, ${toDomPrecision(initial.panY)}px, 0) scale(${toDomPrecision(initial.zoomPercent / 100)})`,
               transformOrigin: "center center",
             }}
             data-testid="preview-zoom-stage"
@@ -417,6 +441,17 @@ export const NLEPreview = memo(function NLEPreview({
           style={{ opacity: 0, transition: "opacity 300ms ease-out" }}
           aria-live="polite"
         />
+        {!isPreviewAtFit(settledZoom) && (
+          <button
+            type="button"
+            className="absolute bottom-3 right-3 z-50 rounded-md px-2.5 py-1 text-xs font-medium text-white/80 bg-black/50 backdrop-blur-sm hover:bg-black/70 hover:text-white transition-colors"
+            onClick={() => applyZoom(DEFAULT_PREVIEW_ZOOM)}
+            aria-label="Reset zoom to fit"
+            data-testid="preview-reset-zoom"
+          >
+            {Math.round(settledZoom.zoomPercent)}% — Reset
+          </button>
+        )}
       </div>
     </div>
   );

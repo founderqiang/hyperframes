@@ -36,8 +36,18 @@ vi.mock("../../utils/studioUiPreferences", () => ({
   writeStudioUiPreferences: () => {},
 }));
 
+let resizeCallbacks: Array<() => void> = [];
+
 class MockResizeObserver {
-  observe() {}
+  private cb: ResizeObserverCallback;
+  constructor(cb: ResizeObserverCallback) {
+    this.cb = cb;
+  }
+  observe() {
+    const fire = () => this.cb([], this as unknown as ResizeObserver);
+    resizeCallbacks.push(fire);
+    fire();
+  }
   disconnect() {}
 }
 
@@ -61,6 +71,7 @@ function setRect(node: Element, rect: { width: number; height: number }) {
 }
 
 function renderPreview() {
+  resizeCallbacks = [];
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -82,6 +93,9 @@ function renderPreview() {
   expect(stage).toBeTruthy();
 
   setRect(viewport, { width: 800, height: 600 });
+  act(() => {
+    for (const fire of resizeCallbacks) fire();
+  });
 
   return {
     host,
@@ -167,7 +181,7 @@ describe("NLEPreview", () => {
       );
     });
 
-    expect(view.stage.style.transform).toContain("translate(48px, 40px)");
+    expect(view.stage.style.transform).toContain("translate3d(56px, 40px, 0)");
     view.cleanup();
   });
 
@@ -189,7 +203,7 @@ describe("NLEPreview", () => {
       );
     });
 
-    expect(view.stage.style.transform).toContain("translate(30px, -24px)");
+    expect(view.stage.style.transform).toContain("translate3d(30px, -24px, 0)");
     view.cleanup();
   });
 });
