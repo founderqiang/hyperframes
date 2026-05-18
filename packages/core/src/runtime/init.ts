@@ -1469,35 +1469,6 @@ export function initSandboxRuntimeModular(): void {
         applyCaptionOverrides();
         postTimeline();
         postState(true);
-
-        let lateBindChecks = 0;
-        let sawMissing = false;
-        const lateBindInterval = setInterval(() => {
-          if (++lateBindChecks > 50) {
-            clearInterval(lateBindInterval);
-            return;
-          }
-          const hosts = document.querySelectorAll("[data-composition-id]");
-          let allBound = true;
-          for (let i = 0; i < hosts.length; i++) {
-            const id = hosts[i].getAttribute("data-composition-id");
-            if (id && !timelines[id]) {
-              allBound = false;
-              sawMissing = true;
-              break;
-            }
-          }
-          if (allBound && !sawMissing) {
-            clearInterval(lateBindInterval);
-            return;
-          }
-          if (!allBound) return;
-          childrenBound = false;
-          bindRootTimelineIfAvailable();
-          postTimeline();
-          postState(true);
-          clearInterval(lateBindInterval);
-        }, 100);
       });
   } else {
     // No external/inline compositions to load — apply caption overrides immediately
