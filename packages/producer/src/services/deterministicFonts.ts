@@ -257,15 +257,32 @@ async function buildFontFaceCss(
   const unresolved: string[] = [];
 
   for (const [normalizedFamily, originalCaseFamily] of requestedFamilies) {
-    // Path 1: pre-bundled fonts via FONT_ALIASES
+    // Path 1: pre-bundled fonts via FONT_ALIASES — emit embedded faces,
+    // then fetch from Google Fonts to fill any weights not in the bundle.
     const canonicalKey = FONT_ALIASES[normalizedFamily];
     if (canonicalKey) {
       const canonical = CANONICAL_FONTS[canonicalKey];
       if (!canonical) continue;
+
+      const coveredWeights = new Set<string>();
       for (const face of canonical.faces) {
         const style = face.style || "normal";
         const src = fontDataUri(canonical.packageName, face.weight, style);
         rules.push(buildFontFaceRule(originalCaseFamily, src, face.weight, style));
+        coveredWeights.add(`${face.weight}:${style}`);
+      }
+
+      // Fetch all weights from Google Fonts and add any that aren't
+      // already covered by the embedded bundle. This ensures that
+      // compositions requesting e.g. wght@200 get that weight even
+      // if the bundle only ships 400/700/900.
+      const googleFaces = await fetchGoogleFont(originalCaseFamily, options);
+      for (const face of googleFaces) {
+        const key = `${face.weight}:${face.style}`;
+        if (!coveredWeights.has(key)) {
+          rules.push(buildFontFaceRule(originalCaseFamily, face.dataUri, face.weight, face.style));
+          coveredWeights.add(key);
+        }
       }
       continue;
     }

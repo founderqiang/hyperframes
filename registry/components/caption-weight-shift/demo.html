@@ -59,7 +59,7 @@
         left: 50%;
         transform: translateX(-50%);
         width: 1400px;
-        height: 260px;
+        height: 278px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -70,7 +70,7 @@
         left: 0;
         top: 0;
         width: 1400px;
-        height: 260px;
+        height: 278px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -224,7 +224,7 @@
       }
 
       function splitLines(words) {
-        if (measureLineWidth(words) <= MAX_LINE_WIDTH) {
+        if (words.length < 2) {
           return [{ words: words, startIndex: 0 }];
         }
         var bestSplit = Math.ceil(words.length / 2);
@@ -246,6 +246,35 @@
         if (line1.length) result.push({ words: line1, startIndex: 0 });
         if (line2.length) result.push({ words: line2, startIndex: line1.length });
         return result;
+      }
+
+      function avoidSingleWordGroups(groups) {
+        var out = [];
+        groups.forEach(function (group) {
+          if (
+            group.words.length === 1 &&
+            out.length > 0 &&
+            out[out.length - 1].words.length < MAX_WORDS_PER_GROUP
+          ) {
+            out[out.length - 1] = makeGroup(out[out.length - 1].words.concat(group.words));
+          } else {
+            out.push(group);
+          }
+        });
+
+        for (var i = 0; i < out.length; i++) {
+          if (out[i].words.length !== 1) continue;
+          if (i + 1 < out.length && out[i + 1].words.length < MAX_WORDS_PER_GROUP) {
+            out[i] = makeGroup(out[i].words.concat(out[i + 1].words));
+            out.splice(i + 1, 1);
+          } else if (i > 0 && out[i - 1].words.length < MAX_WORDS_PER_GROUP) {
+            out[i - 1] = makeGroup(out[i - 1].words.concat(out[i].words));
+            out.splice(i, 1);
+            i--;
+          }
+        }
+
+        return out;
       }
 
       function makeGroups(words) {
@@ -273,7 +302,7 @@
           }
         });
         if (current.length) groups.push(makeGroup(current));
-        return groups;
+        return avoidSingleWordGroups(groups);
       }
 
       function makeGroup(words) {
@@ -311,9 +340,10 @@
             lineEl.id = "caption-group-" + groupIndex + "-line-" + lineIndex;
             lineEl.style.fontWeight = lineIndex === 0 ? FONT_WEIGHT_BOLD : FONT_WEIGHT_LIGHT;
             lineEl.style.fontSize = computedSize + "px";
-            line.words.forEach(function (word) {
+            line.words.forEach(function (word, wordIndex) {
               var wordEl = document.createElement("span");
               wordEl.textContent = word.text.toLowerCase();
+              wordEl.style.display = "inline-block";
               lineEl.appendChild(wordEl);
             });
             copyEl.appendChild(lineEl);
@@ -362,6 +392,7 @@
           var line2El = document.getElementById("caption-group-" + groupIndex + "-line-1");
           var line2FirstWord = group.lines[1].words[0];
           var switchTime = line2FirstWord.start;
+
           tl.to(
             line1El,
             { fontWeight: FONT_WEIGHT_LIGHT, duration: WEIGHT_TRANSITION, ease: "power2.out" },

@@ -25,7 +25,7 @@
         overflow: hidden;
         background: #0a0a0a;
       }
-      #glitch-rgb {
+      #caption-glitch-rgb {
         position: relative;
         width: 1920px;
         height: 1080px;
@@ -43,8 +43,13 @@
       .gl-overlay {
         position: absolute;
         inset: 0;
-        background: rgba(0, 0, 0, 0.45);
         z-index: 1;
+        background: linear-gradient(
+          to bottom,
+          rgba(0, 0, 0, 0.08) 0%,
+          rgba(0, 0, 0, 0.16) 54%,
+          rgba(0, 0, 0, 0.5) 100%
+        );
         pointer-events: none;
       }
       .gl-scanlines {
@@ -56,9 +61,10 @@
           to bottom,
           transparent 0px,
           transparent 3px,
-          rgba(0, 0, 0, 0.08) 3px,
-          rgba(0, 0, 0, 0.08) 4px
+          rgba(0, 0, 0, 0.16) 3px,
+          rgba(0, 0, 0, 0.16) 4px
         );
+        opacity: 0.55;
       }
       #gl-container {
         position: absolute;
@@ -75,7 +81,7 @@
         flex-wrap: wrap;
         align-items: flex-end;
         justify-content: center;
-        gap: 24px;
+        gap: 14px;
         padding: 0 100px;
         opacity: 0;
         visibility: hidden;
@@ -85,17 +91,18 @@
         font-weight: 700;
         font-size: 88px;
         text-transform: uppercase;
-        color: rgba(180, 230, 255, 0.45);
+        color: #ffffff;
         display: inline-block;
-        letter-spacing: 0.05em;
-        line-height: 1;
-        will-change: transform, text-shadow, color;
+        letter-spacing: 0.03em;
+        line-height: 0.96;
+        text-shadow: 0 5px 18px rgba(0, 0, 0, 0.52);
+        will-change: transform, text-shadow;
       }
     </style>
   </head>
   <body>
     <div
-      id="glitch-rgb"
+      id="caption-glitch-rgb"
       data-composition-id="caption-glitch-rgb"
       data-start="0"
       data-duration="8"
@@ -121,30 +128,7 @@
       (function () {
         window.__timelines = window.__timelines || {};
 
-        var _fitCanvas = document.createElement("canvas");
-        var _fitCtx = _fitCanvas.getContext("2d");
-        function fitFontSize(text, baseFontSize, fontWeight, fontFamily, maxWidth) {
-          var size = baseFontSize;
-          var minSize = Math.floor(baseFontSize * 0.45);
-          while (size > minSize) {
-            _fitCtx.font = fontWeight + " " + size + "px " + fontFamily;
-            if (_fitCtx.measureText(text).width <= maxWidth) return size;
-            size -= 2;
-          }
-          return minSize;
-        }
-
-        function mulberry32(seed) {
-          return function () {
-            seed |= 0;
-            seed = (seed + 0x6d2b79f5) | 0;
-            var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-          };
-        }
-
-        var WORDS = [
+        var TRANSCRIPT = [
           { text: "Every", start: 0.0, end: 0.3 },
           { text: "great", start: 0.3, end: 0.55 },
           { text: "video", start: 0.55, end: 0.85 },
@@ -175,27 +159,69 @@
           { text: "cinema.", start: 7.3, end: 7.7 },
         ];
 
-        // Keywords get white + glow on activation
-        var KEYWORDS = new Set([8, 12, 15, 24, 27]); // HyperFrames, HTML, professional, code, cinema.
+        var _fitCanvas = document.createElement("canvas");
+        var _fitCtx = _fitCanvas.getContext("2d");
+        function fitFontSize(text, baseFontSize, fontWeight, fontFamily, maxWidth) {
+          var size = baseFontSize;
+          var minSize = Math.floor(baseFontSize * 0.45);
+          while (size > minSize) {
+            _fitCtx.font = fontWeight + " " + size + "px " + fontFamily;
+            if (_fitCtx.measureText(text).width <= maxWidth) return size;
+            size -= 2;
+          }
+          return minSize;
+        }
 
-        var RAW_GROUPS = [
-          [0, 3],
-          [4, 7],
-          [8, 8],
-          [9, 12],
-          [13, 15],
-          [16, 16],
-          [17, 19],
-          [20, 22],
-          [23, 24],
-          [25, 27],
-        ];
+        function mulberry32(seed) {
+          return function () {
+            seed |= 0;
+            seed = (seed + 0x6d2b79f5) | 0;
+            var t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+          };
+        }
+
+        function buildGroups(words) {
+          var groups = [];
+          var start = 0;
+          var chars = 0;
+          for (var i = 0; i < words.length; i++) {
+            chars += words[i].text.length + 1;
+            var endsSentence = /[.!?]$/.test(words[i].text);
+            var nextGap = i + 1 < words.length ? words[i + 1].start - words[i].end : 0;
+            var full = i - start >= 3 || chars >= 21;
+            if (endsSentence || nextGap > 0.28 || full || i === words.length - 1) {
+              groups.push([start, i]);
+              start = i + 1;
+              chars = 0;
+            }
+          }
+          return groups;
+        }
+
+        function glitchPlan(word, nextWord) {
+          var nextStart = nextWord ? nextWord.start : word.end + 0.3;
+          var available = Math.min(word.end, nextStart) - word.start - 0.02;
+          var total = Math.min(0.24, Math.max(0.08, available));
+          return {
+            d1: total * 0.35,
+            d2: total * 0.65,
+          };
+        }
+
+        function shouldAftershock(word) {
+          return /\d|\$|%/.test(word.text) || word.text.replace(/[^\w]/g, "").length >= 7;
+        }
+
+        var RAW_GROUPS = buildGroups(TRANSCRIPT);
         var GROUPS = RAW_GROUPS.map(function (pair, gi) {
-          var ws = pair[0],
-            we = pair[1];
-          var nextStart = gi + 1 < RAW_GROUPS.length ? WORDS[RAW_GROUPS[gi + 1][0]].start : 8.0;
-          var gEnd = Math.min(WORDS[we].end + 0.35, nextStart - 0.05);
-          return { wordStart: ws, wordEnd: we, start: WORDS[ws].start, end: gEnd };
+          var ws = pair[0];
+          var we = pair[1];
+          var nextStart =
+            gi + 1 < RAW_GROUPS.length ? TRANSCRIPT[RAW_GROUPS[gi + 1][0]].start : 8.0;
+          var end = Math.min(TRANSCRIPT[we].end + 0.24, nextStart - 0.04);
+          return { wordStart: ws, wordEnd: we, start: TRANSCRIPT[ws].start, end: end };
         });
 
         var BASE_FONT = 88;
@@ -203,7 +229,7 @@
         var tl = gsap.timeline({ paused: true });
 
         GROUPS.forEach(function (g, gi) {
-          var groupWords = WORDS.slice(g.wordStart, g.wordEnd + 1);
+          var groupWords = TRANSCRIPT.slice(g.wordStart, g.wordEnd + 1);
           var grp = document.createElement("div");
           grp.className = "gl-group";
           grp.id = "gl-grp-" + gi;
@@ -230,29 +256,31 @@
           tl.set(grp, { visibility: "visible" }, g.start);
           tl.fromTo(
             grp,
-            { opacity: 0, x: -8 },
-            { opacity: 1, x: 0, duration: 0.18, ease: "power3.out" },
+            { opacity: 0 },
+            { opacity: 1, duration: 0.12, ease: "power2.out" },
             g.start,
           );
 
           groupWords.forEach(function (w, i) {
             var wi = g.wordStart + i;
             var wordEl = document.getElementById("gl-w-" + wi);
-            var isKW = KEYWORDS.has(wi);
+            var plan = glitchPlan(w, TRANSCRIPT[wi + 1]);
+
             var rng = mulberry32(wi * 777 + 13);
-            var j1 = (rng() - 0.5) * 10;
-            var j2 = (rng() - 0.5) * 8;
-            var j3 = (rng() - 0.5) * 6;
-            var shadowMag = 3 + rng() * 4;
+            var travel = -(8 + rng() * 8);
+            var shadowMag = 5 + rng() * 7;
             var sm = shadowMag.toFixed(1);
+            var nextWord = TRANSCRIPT[wi + 1];
+            var nextStart = nextWord ? nextWord.start : g.end;
+            var aftershockEnd = Math.min(g.end - 0.08, nextStart - 0.04);
 
             tl.to(
               wordEl,
               {
-                x: j1,
-                color: "#ffffff",
-                textShadow: sm + "px 0 #ff003c, -" + sm + "px 0 #00e5ff",
-                duration: 0.045,
+                x: travel,
+                textShadow:
+                  sm + "px 0 #ff003c, -" + sm + "px 0 #00e5ff, 0 5px 18px rgba(0,0,0,0.52)",
+                duration: plan.d1,
                 ease: "none",
               },
               w.start,
@@ -260,47 +288,51 @@
             tl.to(
               wordEl,
               {
-                x: j2,
-                textShadow:
-                  "-" +
-                  (shadowMag * 0.7).toFixed(1) +
-                  "px 0 #ff003c, " +
-                  (shadowMag * 0.7).toFixed(1) +
-                  "px 0 #00e5ff",
-                duration: 0.038,
-                ease: "none",
-              },
-              w.start + 0.045,
-            );
-            tl.to(
-              wordEl,
-              {
-                x: j3,
-                textShadow: sm + "px 0 #ff003c, -" + sm + "px 0 #00e5ff",
-                duration: 0.03,
-                ease: "none",
-              },
-              w.start + 0.083,
-            );
-            tl.to(
-              wordEl,
-              {
                 x: 0,
-                textShadow: "none",
-                color: isKW ? "#ffffff" : "#00e5ff",
-                duration: 0.05,
-                ease: "power2.out",
+                textShadow: "0 5px 18px rgba(0,0,0,0.52)",
+                duration: plan.d2,
+                ease: "power3.out",
               },
-              w.start + 0.113,
+              w.start + plan.d1,
             );
-            tl.to(
-              wordEl,
-              { color: "rgba(180,230,255,0.4)", textShadow: "none", duration: 0.12 },
-              w.end,
-            );
+
+            if (shouldAftershock(w) && aftershockEnd - w.end > 0.22) {
+              var pulseStart = w.end + 0.08;
+              var pulseIndex = 0;
+              while (pulseStart + 0.1 < aftershockEnd) {
+                var pulseTravel = -(3 + rng() * 5);
+                var pulseShadow = (3 + rng() * 5).toFixed(1);
+                tl.to(
+                  wordEl,
+                  {
+                    x: pulseTravel,
+                    textShadow:
+                      pulseShadow +
+                      "px 0 #ff003c, -" +
+                      pulseShadow +
+                      "px 0 #00e5ff, 0 5px 18px rgba(0,0,0,0.52)",
+                    duration: 0.045,
+                    ease: "none",
+                  },
+                  pulseStart,
+                );
+                tl.to(
+                  wordEl,
+                  {
+                    x: 0,
+                    textShadow: "0 5px 18px rgba(0,0,0,0.52)",
+                    duration: 0.075,
+                    ease: "power3.out",
+                  },
+                  pulseStart + 0.045,
+                );
+                pulseIndex++;
+                pulseStart += pulseIndex % 2 === 0 ? 0.18 : 0.24;
+              }
+            }
           });
 
-          tl.to(grp, { opacity: 0, x: 8, duration: 0.15 }, g.end - 0.15);
+          tl.to(grp, { opacity: 0, duration: 0.1, ease: "power2.in" }, g.end - 0.1);
           tl.set(grp, { opacity: 0, visibility: "hidden" }, g.end);
         });
 

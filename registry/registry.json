@@ -96,10 +96,6 @@
       "type": "hyperframes:component"
     },
     {
-      "name": "caption-typewriter",
-      "type": "hyperframes:component"
-    },
-    {
       "name": "caption-matrix-decode",
       "type": "hyperframes:component"
     },
@@ -125,6 +121,10 @@
     },
     {
       "name": "caption-neon-glow",
+      "type": "hyperframes:component"
+    },
+    {
+      "name": "caption-highlight",
       "type": "hyperframes:component"
     },
     {
