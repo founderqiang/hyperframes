@@ -15,7 +15,7 @@ import { isFinitePositive } from "./playbackAdapter";
 // Duration attribute helpers
 // ---------------------------------------------------------------------------
 
-export function readDurationAttribute(el: Element | null | undefined): number {
+function readDurationAttribute(el: Element | null | undefined): number {
   if (!el) return 0;
   const duration =
     Number.parseFloat(el.getAttribute("data-duration") ?? "") ||
@@ -42,7 +42,7 @@ export function readTimelineDurationFromDocument(doc: Document | null | undefine
 // DOM element type guards
 // ---------------------------------------------------------------------------
 
-export function isHtmlElement(el: Element): el is HTMLElement {
+function isHtmlElement(el: Element): el is HTMLElement {
   const HtmlElementCtor = el.ownerDocument.defaultView?.HTMLElement ?? globalThis.HTMLElement;
   return typeof HtmlElementCtor !== "undefined" && el instanceof HtmlElementCtor;
 }
@@ -113,7 +113,7 @@ export function getTimelineElementDisplayLabel(input: {
   return tag ? `${tag} clip` : "Timeline clip";
 }
 
-export const IMPLICIT_TIMELINE_LAYER_SKIP_TAGS = new Set([
+const IMPLICIT_TIMELINE_LAYER_SKIP_TAGS = new Set([
   "base",
   "link",
   "meta",
@@ -123,7 +123,7 @@ export const IMPLICIT_TIMELINE_LAYER_SKIP_TAGS = new Set([
   "template",
 ]);
 
-export function humanizeTimelineIdentifier(value: string): string {
+function humanizeTimelineIdentifier(value: string): string {
   return value
     .trim()
     .replace(/[_-]+/g, " ")
@@ -239,7 +239,7 @@ export function getTimelineElementIdentity(element: TimelineElement): string {
 // DOM node querying
 // ---------------------------------------------------------------------------
 
-export function getTimelineDomNodes(doc: Document): Element[] {
+function getTimelineDomNodes(doc: Document): Element[] {
   const rootComp = doc.querySelector("[data-composition-id]");
   return Array.from(doc.querySelectorAll("[data-start]")).filter((node) => node !== rootComp);
 }

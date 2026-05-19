@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import { Zap } from "../../icons/SystemIcons";
 
-export const FIELD =
+const FIELD =
   "min-w-0 rounded-xl border border-neutral-800 bg-neutral-900/95 px-3 py-2 text-neutral-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-colors focus-within:border-neutral-600";
 export const LABEL = "text-[11px] font-medium uppercase tracking-[0.18em] text-neutral-500";
 export const RESPONSIVE_GRID = "grid grid-cols-[repeat(auto-fit,minmax(118px,1fr))] gap-3";
@@ -30,7 +30,7 @@ export function parsePlainNumber(value: string): number | null {
 
 // ── CommitField ──
 
-export function CommitField({
+function CommitField({
   value,
   disabled,
   onCommit,

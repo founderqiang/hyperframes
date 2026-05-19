@@ -20,7 +20,7 @@ export function isFinitePositive(value: number): boolean {
   return Number.isFinite(value) && value > 0;
 }
 
-export function clampTime(time: number, duration: number): number {
+function clampTime(time: number, duration: number): number {
   const safeDuration = Math.max(0, Number.isFinite(duration) ? duration : 0);
   const safeTime = Math.max(0, Number.isFinite(time) ? time : 0);
   return safeDuration > 0 ? Math.min(safeTime, safeDuration) : safeTime;

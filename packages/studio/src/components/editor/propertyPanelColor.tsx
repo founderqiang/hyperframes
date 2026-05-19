@@ -18,7 +18,7 @@ const COLOR_PICKER_SIZE = { width: 292, height: 386 };
 /*  ColorSlider                                                        */
 /* ------------------------------------------------------------------ */
 
-export function ColorSlider({
+function ColorSlider({
   label,
   value,
   min,

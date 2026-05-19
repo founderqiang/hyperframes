@@ -23,7 +23,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 /** Throws with a clear hint when the SAM CLI is not on PATH. */
-export function assertSamAvailable(): void {
+function assertSamAvailable(): void {
   try {
     execFileSync("sam", ["--version"], { stdio: "ignore" });
   } catch {
@@ -34,7 +34,7 @@ export function assertSamAvailable(): void {
 }
 
 /** Throws with a clear hint when the `aws` CLI is not on PATH. */
-export function assertAwsCliAvailable(): void {
+function assertAwsCliAvailable(): void {
   try {
     execFileSync("aws", ["--version"], { stdio: "ignore" });
   } catch {

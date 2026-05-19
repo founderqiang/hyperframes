@@ -80,7 +80,7 @@ function normalizeSelection(params: URLSearchParams): StudioUrlSelectionState | 
   };
 }
 
-export function defaultStudioUrlState(): StudioUrlState {
+function defaultStudioUrlState(): StudioUrlState {
   return {
     activeCompPath: null,
     currentTime: null,

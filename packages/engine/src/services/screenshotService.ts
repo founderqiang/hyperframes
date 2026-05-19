@@ -203,7 +203,7 @@ export async function captureScreenshotWithAlpha(
  * video itself is the backdrop, so DOM layers must only contribute their
  * foreground UI pixels — never a page-spanning solid backdrop.
  */
-export const TRANSPARENT_BG_STYLE_ID = "__hf_transparent_bg__";
+const TRANSPARENT_BG_STYLE_ID = "__hf_transparent_bg__";
 
 export async function initTransparentBackground(page: Page): Promise<void> {
   const client = await getCdpSession(page);

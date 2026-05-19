@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 const SAMPLE_RATE = 4000;
 const PEAK_COUNT = 4000;
-export const WAVEFORM_CACHE_VERSION = "v2";
+const WAVEFORM_CACHE_VERSION = "v2";
 
 export function buildWaveformCacheKey(assetPath: string): string {
   return `${WAVEFORM_CACHE_VERSION}_${assetPath.replace(/[/\\]/g, "_")}.json`;

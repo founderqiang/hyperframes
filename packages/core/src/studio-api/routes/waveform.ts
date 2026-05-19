@@ -4,9 +4,6 @@ import type { Hono } from "hono";
 import type { StudioApiAdapter } from "../types.js";
 import { decodeAudioPeaks, buildWaveformCacheKey } from "../helpers/waveform.js";
 
-export { isAudioFile } from "../helpers/mime.js";
-export { generateWaveformCache } from "../helpers/waveform.js";
-
 export function registerWaveformRoutes(api: Hono, adapter: StudioApiAdapter): void {
   api.get("/projects/:id/waveform/*", async (c) => {
     const project = await adapter.resolveProject(c.req.param("id"));

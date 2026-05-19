@@ -299,5 +299,3 @@ export async function transcribe(
     speechOnsetSeconds,
   };
 }
-
-export { isAudioFile, isVideoFile };

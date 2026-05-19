@@ -256,7 +256,7 @@ export function createManualOffsetDragMember(input: {
   };
 }
 
-export function resolveManualOffsetDragMemberOffset(
+function resolveManualOffsetDragMemberOffset(
   member: ManualOffsetDragMember,
   dx: number,
   dy: number,
@@ -289,7 +289,7 @@ export function applyManualOffsetDragCommit(
   return offset;
 }
 
-export function restoreManualOffsetDragMember(member: ManualOffsetDragMember): void {
+function restoreManualOffsetDragMember(member: ManualOffsetDragMember): void {
   restoreStudioPathOffset(member.element, member.initialPathOffset);
   endStudioManualEditGesture(member.element, member.gestureToken);
 }

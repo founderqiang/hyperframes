@@ -15,10 +15,10 @@ export type ExtractedBlock = {
   index: number;
 };
 
-export const TAG_PATTERN = /<([a-z][\w:-]*)(\s[^<>]*?)?>/gi;
+const TAG_PATTERN = /<([a-z][\w:-]*)(\s[^<>]*?)?>/gi;
 export const STYLE_BLOCK_PATTERN = /<style\b([^>]*)>([\s\S]*?)<\/style>/gi;
 export const SCRIPT_BLOCK_PATTERN = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
-export const COMPOSITION_ID_IN_CSS_PATTERN = /\[data-composition-id=["']([^"']+)["']\]/g;
+const COMPOSITION_ID_IN_CSS_PATTERN = /\[data-composition-id=["']([^"']+)["']\]/g;
 export const TIMELINE_REGISTRY_INIT_PATTERN =
   /window\.__timelines\s*=\s*window\.__timelines\s*\|\|\s*\{\}|window\.__timelines\s*=\s*\{\}|window\.__timelines\s*\?\?=\s*\{\}/i;
 export const TIMELINE_REGISTRY_ASSIGN_PATTERN = /window\.__timelines\[[^\]]+\]\s*=/i;

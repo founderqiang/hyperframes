@@ -370,7 +370,7 @@ function formatHex(channel: number): string {
   return channel.toString(16).padStart(2, "0");
 }
 
-export function interpolateGradientStopColor(model: GradientModel, position: number): string {
+function interpolateGradientStopColor(model: GradientModel, position: number): string {
   const clampedPosition = clamp(position, 0, 100);
   const sortedStops = [...model.stops].sort((a, b) => a.position - b.position);
   const exact = sortedStops.find((stop) => Math.abs(stop.position - clampedPosition) < 0.001);

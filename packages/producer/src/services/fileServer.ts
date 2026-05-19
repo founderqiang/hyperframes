@@ -15,7 +15,7 @@ import { join, extname, resolve, sep } from "node:path";
 import { injectScriptsAtHeadStart, injectScriptsIntoHtml } from "@hyperframes/core/compiler";
 import { getVerifiedHyperframeRuntimeSource } from "./hyperframeRuntimeLoader.js";
 
-export { injectScriptsAtHeadStart, injectScriptsIntoHtml };
+export { injectScriptsAtHeadStart };
 
 type PathModuleLike = {
   resolve: (...segments: string[]) => string;

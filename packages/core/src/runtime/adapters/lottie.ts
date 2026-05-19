@@ -1,6 +1,5 @@
 import type { RuntimeDeterministicAdapter } from "../types";
 import { swallow } from "../diagnostics";
-export { isLottieAnimationLoaded } from "../../lottieReadiness";
 
 /**
  * Lottie adapter for HyperFrames

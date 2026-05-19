@@ -116,7 +116,6 @@ export interface FreezePlanResult {
  * `../runtimeEnvSnapshot.ts` — chunk workers re-apply the snapshot during
  * boot, so it needs to be importable without dragging in the freeze pipeline.
  */
-export { RUNTIME_ENV_PREFIXES, snapshotRuntimeEnv } from "../runtimeEnvSnapshot.js";
 
 /** The relative path inside `<planDir>/` to the compiled HTML. */
 const COMPILED_INDEX_RELATIVE_PATH = "compiled/index.html";

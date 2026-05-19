@@ -20,7 +20,7 @@ const CHROME_PATHS = [
   "/usr/bin/chromium-browser",
 ];
 
-export async function getSharedBrowser(): Promise<import("puppeteer-core").Browser | null> {
+async function getSharedBrowser(): Promise<import("puppeteer-core").Browser | null> {
   if (_browser?.connected) return _browser;
   if (_browserLaunchPromise) return _browserLaunchPromise;
   _browserLaunchPromise = (async () => {

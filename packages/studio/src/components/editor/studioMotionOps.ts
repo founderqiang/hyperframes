@@ -129,7 +129,7 @@ export function buildStudioGsapPresetMotion(
 
 // ── Manifest parse/serialize ──
 
-export function parseMotionValues(value: unknown): StudioGsapMotionValues | null {
+function parseMotionValues(value: unknown): StudioGsapMotionValues | null {
   if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
   const parsed: StudioGsapMotionValues = {};

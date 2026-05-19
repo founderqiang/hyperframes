@@ -56,7 +56,7 @@ interface TrustPolicyDocument {
  * Actions the CLI needs to deploy/invoke/destroy the stack. Keep this
  * sorted alphabetically inside each service so diffs stay readable.
  */
-export const REQUIRED_ACTIONS = {
+const REQUIRED_ACTIONS = {
   cloudformation: [
     "cloudformation:CreateChangeSet",
     "cloudformation:CreateStack",

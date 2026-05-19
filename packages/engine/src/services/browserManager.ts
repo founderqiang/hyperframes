@@ -149,7 +149,7 @@ async function probeBeginFrameSupport(browser: Browser): Promise<boolean> {
  *
  * Exported for tests; production callers go through `resolveBrowserGpuMode`.
  */
-export let _autoBrowserGpuModeCache: Promise<"software" | "hardware"> | undefined;
+let _autoBrowserGpuModeCache: Promise<"software" | "hardware"> | undefined;
 
 /** Test-only: reset the cached probe result. */
 export function _resetAutoBrowserGpuModeCacheForTests(): void {

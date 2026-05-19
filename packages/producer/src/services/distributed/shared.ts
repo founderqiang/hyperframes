@@ -73,7 +73,7 @@ export async function readFfmpegVersion(): Promise<string> {
 }
 
 /** Test-only: clear the cached ffmpeg version so a fresh probe runs. */
-export function _resetFfmpegVersionCacheForTests(): void {
+function _resetFfmpegVersionCacheForTests(): void {
   cachedFfmpegVersion = null;
 }
 

@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 import { DEFAULT_REGISTRY_URL } from "../registry/index.js";
 
 export const PROJECT_CONFIG_FILENAME = "hyperframes.json";
-export const PROJECT_CONFIG_SCHEMA_URL = "https://hyperframes.heygen.com/schema/hyperframes.json";
+const PROJECT_CONFIG_SCHEMA_URL = "https://hyperframes.heygen.com/schema/hyperframes.json";
 
 export interface ProjectConfigPaths {
   /** Where `hyperframes:block` items land, relative to project root. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { adjustNumericToken, FIELD, LABEL, parseNumericToken } from "./propertyPanelHelpers";
 
-export function CommitField({
+function CommitField({
   value,
   disabled,
   liveCommit,

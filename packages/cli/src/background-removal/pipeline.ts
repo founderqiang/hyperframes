@@ -20,7 +20,7 @@ import { type Device, type ModelId } from "./manager.js";
 
 export type OutputFormat = "webm" | "mov" | "png";
 
-export const QUALITY_CRF = {
+const QUALITY_CRF = {
   fast: 30,
   balanced: 18,
   best: 12,

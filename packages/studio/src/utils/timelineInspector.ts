@@ -1,6 +1,6 @@
 import type { TimelineElement } from "../player";
 
-export const TIMELINE_INSPECTOR_BOUNDARY_EPSILON_SECONDS = 0.08;
+const TIMELINE_INSPECTOR_BOUNDARY_EPSILON_SECONDS = 0.08;
 
 const AUDIO_TIMELINE_TAGS = new Set(["audio", "music", "sfx", "sound", "narration"]);
 const AUDIO_SOURCE_EXT_RE = /\.(aac|flac|m4a|mp3|ogg|opus|wav)(?:[?#].*)?$/i;

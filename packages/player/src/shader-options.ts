@@ -6,8 +6,8 @@
 
 export const SHADER_CAPTURE_SCALE_ATTR = "shader-capture-scale";
 export const SHADER_LOADING_ATTR = "shader-loading";
-export const SHADER_CAPTURE_SCALE_PARAM = "__hf_shader_capture_scale";
-export const SHADER_LOADING_PARAM = "__hf_shader_loading";
+const SHADER_CAPTURE_SCALE_PARAM = "__hf_shader_capture_scale";
+const SHADER_LOADING_PARAM = "__hf_shader_loading";
 
 export const SHADER_LOADING_PHRASES = [
   "Preparing scene transitions",
@@ -31,14 +31,14 @@ export interface ShaderTransitionState {
   loading?: boolean;
 }
 
-export function normalizeShaderCaptureScale(value: string | null): string | null {
+function normalizeShaderCaptureScale(value: string | null): string | null {
   if (value === null) return null;
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
   return String(Math.min(1, Math.max(0.25, parsed)));
 }
 
-export function normalizeShaderLoadingMode(value: string | null): ShaderLoadingMode {
+function normalizeShaderLoadingMode(value: string | null): ShaderLoadingMode {
   if (value === null || value.trim() === "") return "composition";
   const normalized = value.trim().toLowerCase();
   if (
@@ -65,7 +65,7 @@ function setQueryParam(params: URLSearchParams, key: string, value: string | nul
   else params.set(key, value);
 }
 
-export function withShaderQueryParams(
+function withShaderQueryParams(
   src: string,
   scale: string | null,
   loadingMode: ShaderLoadingMode,
@@ -83,7 +83,7 @@ export function withShaderQueryParams(
   return `${path}${nextQuery ? `?${nextQuery}` : ""}${hash}`;
 }
 
-export function injectShaderOptionsIntoSrcdoc(
+function injectShaderOptionsIntoSrcdoc(
   html: string,
   scale: string | null,
   loadingMode: ShaderLoadingMode,

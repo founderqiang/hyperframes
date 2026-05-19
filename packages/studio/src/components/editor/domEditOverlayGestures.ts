@@ -10,7 +10,7 @@ import type { GroupOverlayItem } from "./domEditOverlayGeometry";
 export type GestureKind = "drag" | "resize" | "rotate";
 
 export const BLOCKED_MOVE_THRESHOLD_PX = 4;
-export const MIN_RESIZE_EDGE_PX = 20;
+const MIN_RESIZE_EDGE_PX = 20;
 const ROTATION_COMMIT_EPSILON_DEGREES = 0.05;
 const ROTATION_SNAP_DEGREES = 15;
 

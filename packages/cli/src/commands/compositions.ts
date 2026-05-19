@@ -45,7 +45,7 @@ function estimateDurationFromScripts(root: ParentNode): number {
   return duration;
 }
 
-export function parseCompositions(html: string, baseDir: string): CompositionInfo[] {
+function parseCompositions(html: string, baseDir: string): CompositionInfo[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
 

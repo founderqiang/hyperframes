@@ -131,7 +131,7 @@ export function findWhisper(): WhisperResult | undefined {
   return findFromEnv() ?? findFromSystem() ?? findBuiltBinary();
 }
 
-export function getInstallInstructions(): string {
+function getInstallInstructions(): string {
   if (platform() === "darwin") {
     return "brew install whisper-cpp";
   }

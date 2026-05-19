@@ -7,7 +7,7 @@ export const TRACK_H = 72;
 export const RULER_H = 24;
 export const CLIP_Y = 3;
 export const CLIP_HANDLE_W = 18;
-export const TIMELINE_SCROLL_BUFFER = 20;
+const TIMELINE_SCROLL_BUFFER = 20;
 
 /* ── Tick generation ──────────────────────────────────────────────── */
 function getMajorTickInterval(duration: number, pixelsPerSecond?: number): number {
