@@ -36,7 +36,7 @@ import {
 } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { type CanvasResolution } from "@hyperframes/core";
-import { type EngineConfig, resolveConfig } from "@hyperframes/engine";
+import { type EngineConfig, getEncoderPreset, resolveConfig } from "@hyperframes/engine";
 import { defaultLogger, type ProducerLogger } from "../../logger.js";
 import { runAudioStage } from "../render/stages/audioStage.js";
 import { runCompileStage } from "../render/stages/compileStage.js";
@@ -57,6 +57,7 @@ import { validateNoGpuEncode, validateNoSystemFonts } from "../render/planValida
 import { snapshotRuntimeEnv } from "../render/runtimeEnvSnapshot.js";
 import {
   buildSyntheticRenderJob,
+  type DistributedFormat,
   PLAN_VIDEOS_META_RELATIVE_PATH,
   type PlanVideosJson,
   readFfmpegVersion,
@@ -86,7 +87,7 @@ export interface DistributedRenderConfig {
    * `tests/distributed/_smoke/webm-concat-copy.test.ts` for the gating
    * experiment that proved the contract.
    */
-  format: "mp4" | "mov" | "png-sequence" | "webm";
+  format: DistributedFormat;
   /**
    * Codec selection for `format: "mp4"`. `"h264"` (the default) → libx264 +
    * yuv420p; `"h265"` → libx265 + yuv420p with closed-GOP keyint params
@@ -176,7 +177,7 @@ export interface PlanResult {
   fps: 24 | 30 | 60;
   width: number;
   height: number;
-  format: "mp4" | "mov" | "png-sequence" | "webm";
+  format: DistributedFormat;
   ffmpegVersion: string;
   producerVersion: string;
 }
@@ -522,28 +523,15 @@ function buildLockedRenderConfig(input: {
  * caller error immediately rather than producing a silently-wrong planDir
  * whose chunk worker would override the codec choice.
  */
-function resolveEncoderTriple(config: DistributedRenderConfig): {
+type EncoderTriple = {
   encoder: LockedRenderConfig["encoder"];
   pixelFormat: string;
   preset: string;
-} {
+};
+
+function resolveEncoderTriple(config: DistributedRenderConfig): EncoderTriple {
   if (config.format === "mp4") {
-    const codec = config.codec ?? "h264";
-    // Explicit unknown-codec throw rather than silent fall-through to h264.
-    // A JS caller building config from JSON who passes `codec: "h266"` or
-    // `codec: "H265"` (typo / wrong case) would otherwise produce h264
-    // output with no signal. The non-mp4-format branch below already throws
-    // for the symmetric "wrong combination" case — match that shape.
-    if (codec !== "h264" && codec !== "h265") {
-      throw new Error(
-        `[plan] DistributedRenderConfig.codec must be "h264" or "h265" for format="mp4"; ` +
-          `received ${JSON.stringify(codec)}. Omit codec to default to h264.`,
-      );
-    }
-    if (codec === "h265") {
-      return { encoder: "libx265-software", pixelFormat: "yuv420p", preset: "medium" };
-    }
-    return { encoder: "libx264-software", pixelFormat: "yuv420p", preset: "medium" };
+    return resolveMp4EncoderTriple(config.codec);
   }
   if (config.codec !== undefined) {
     throw new Error(
@@ -553,16 +541,46 @@ function resolveEncoderTriple(config: DistributedRenderConfig): {
         `libvpx-vp9, and png-sequence has no encoder.`,
     );
   }
-  if (config.format === "mov") {
+  return resolveNonMp4EncoderTriple(config.format, config.quality ?? "standard");
+}
+
+function resolveMp4EncoderTriple(codec: DistributedRenderConfig["codec"]): EncoderTriple {
+  const c = codec ?? "h264";
+  // Explicit unknown-codec throw rather than silent fall-through to h264.
+  // A JS caller building config from JSON who passes `codec: "h266"` or
+  // `codec: "H265"` (typo / wrong case) would otherwise produce h264
+  // output with no signal. The non-mp4-format branch already throws for
+  // the symmetric "wrong combination" case — match that shape.
+  if (c !== "h264" && c !== "h265") {
+    throw new Error(
+      `[plan] DistributedRenderConfig.codec must be "h264" or "h265" for format="mp4"; ` +
+        `received ${JSON.stringify(c)}. Omit codec to default to h264.`,
+    );
+  }
+  if (c === "h265") {
+    return { encoder: "libx265-software", pixelFormat: "yuv420p", preset: "medium" };
+  }
+  return { encoder: "libx264-software", pixelFormat: "yuv420p", preset: "medium" };
+}
+
+function resolveNonMp4EncoderTriple(
+  format: Exclude<DistributedFormat, "mp4">,
+  quality: "draft" | "standard" | "high",
+): EncoderTriple {
+  if (format === "mov") {
     return { encoder: "prores-software", pixelFormat: "yuva444p10le", preset: "4444" };
   }
-  if (config.format === "webm") {
-    // webm distributes via closed-GOP libvpx-vp9 + concat-copy. yuva420p
-    // matches the in-process renderer's webm pixel format (alpha-capable
-    // — the format's main reason for existing). `getEncoderPreset` in
-    // the engine returns "good" for non-draft quality tiers; that becomes
-    // libvpx-vp9's `-deadline good` at encode time.
-    return { encoder: "libvpx-vp9-software", pixelFormat: "yuva420p", preset: "good" };
+  if (format === "webm") {
+    // Defer to `getEncoderPreset` for the libvpx-vp9 preset string so the
+    // draft tier maps to `-deadline realtime` instead of `-deadline good`;
+    // hardcoding "good" here would silently override that mapping for
+    // `quality: "draft"`.
+    const enginePreset = getEncoderPreset(quality, "webm");
+    return {
+      encoder: "libvpx-vp9-software",
+      pixelFormat: enginePreset.pixelFormat,
+      preset: enginePreset.preset,
+    };
   }
   return { encoder: "png-sequence", pixelFormat: "rgba", preset: "lossless" };
 }

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { parseHTML } from "linkedom";
@@ -330,7 +330,19 @@ function warnUnresolvedFonts(unresolved: string[]): void {
 // Google Fonts on-demand fetch + local cache
 // ---------------------------------------------------------------------------
 
-const GOOGLE_FONTS_CACHE_DIR = join(homedir(), ".cache", "hyperframes", "fonts");
+// On AWS Lambda `$HOME` resolves to a `/home/sbx_*` tree that's
+// read-only; only `/tmp` is writable. Route the cache there when
+// running inside Lambda, and honor `HYPERFRAMES_FONT_CACHE_DIR` as
+// an explicit override for any environment.
+function resolveFontCacheRoot(): string {
+  return (
+    process.env.HYPERFRAMES_FONT_CACHE_DIR ??
+    (process.env.AWS_LAMBDA_FUNCTION_NAME
+      ? join(tmpdir(), "hyperframes", "fonts")
+      : join(homedir(), ".cache", "hyperframes", "fonts"))
+  );
+}
+const GOOGLE_FONTS_CACHE_DIR = resolveFontCacheRoot();
 
 // Chrome UA triggers woff2 responses from Google Fonts CSS API
 const WOFF2_USER_AGENT =
