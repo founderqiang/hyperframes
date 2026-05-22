@@ -62,7 +62,7 @@ export const STUDIO_MOTION_PANEL_ENABLED = resolveStudioBooleanEnvFlag(
 export const STUDIO_BLOCKS_PANEL_ENABLED = resolveStudioBooleanEnvFlag(
   env,
   ["VITE_STUDIO_ENABLE_BLOCKS_PANEL", "VITE_STUDIO_BLOCKS_PANEL_ENABLED"],
-  false,
+  true,
 );
 
 export const STUDIO_PREVIEW_SELECTION_ENABLED = STUDIO_INSPECTOR_PANELS_ENABLED;
