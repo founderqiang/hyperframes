@@ -238,6 +238,49 @@ describe("assemble()", () => {
   );
 
   it(
+    "single-chunk render stamps exact r_frame_rate on the output container",
+    async () => {
+      if (!hasFfmpeg) {
+        console.warn(
+          "[assemble.test] skipping single-chunk r_frame_rate test — ffmpeg not available on this host",
+        );
+        return;
+      }
+
+      // Reproducer for the single-chunk pass-through regression: when
+      // `chunkPaths.length === 1`, assemble must still stamp an exact
+      // `r_frame_rate` matching the planDir's rational (here 30/1), not
+      // a PTS-derived fraction like `359/12`. Multi-chunk renders go
+      // through the concat demuxer; single-chunk renders skip it and
+      // need the `-r <fps>` flag on a direct remux step.
+      const chunks: ChunkSliceJson[] = [{ index: 0, startFrame: 0, endFrame: 10 }];
+      const planDir = buildPlanDir("mp4", chunks, 10, false);
+
+      const chunkPath = join(planDir, "chunk-0.mp4");
+      makeMp4Chunk(chunkPath, 10);
+
+      const outputPath = join(planDir, "output-single-chunk.mp4");
+      const result = await assemble(planDir, [chunkPath], null, outputPath);
+
+      expect(result.outputPath).toBe(outputPath);
+      expect(existsSync(outputPath)).toBe(true);
+      expect(result.framesEncoded).toBe(10);
+
+      const videoStream = probeStream(outputPath, "v:0");
+      expect(videoStream).toBeDefined();
+      expect(videoStream?.codec_name).toBe("h264");
+      // The exact-rational assertion — the regression hole that this
+      // test closes. Before the single-chunk -r fix, this came back as
+      // a PTS-derived fraction (e.g. `359/12`) on 1-chunk renders.
+      expect(videoStream?.r_frame_rate).toBe("30/1");
+      const expectedDuration = 10 / 30;
+      const probedDuration = Number(videoStream?.duration ?? 0);
+      expect(Math.abs(probedDuration - expectedDuration)).toBeLessThan(0.001);
+    },
+    TIMEOUT_MS,
+  );
+
+  it(
     "muxes audio with frame-count-derived duration when audio.aac is present",
     async () => {
       if (!hasFfmpeg) return;

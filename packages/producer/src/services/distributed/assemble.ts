@@ -131,42 +131,66 @@ export async function assemble(
   mkdirSync(workDir, { recursive: true });
 
   try {
-    // Concat list file — one `file '<path>'` per chunk, in order. ffmpeg's
-    // concat demuxer escapes single quotes via `'\''`; we replicate that
-    // here so chunk paths containing quotes don't break the parser.
-    const concatListPath = join(workDir, "concat-list.txt");
-    const concatBody = chunkPaths.map((path) => `file '${path.replace(/'/g, "'\\''")}'`).join("\n");
-    writeFileSync(concatListPath, `${concatBody}\n`, "utf-8");
-
     const concatOutputPath = join(workDir, `concat.${plan.dimensions.format}`);
     const fpsArg = fpsToFfmpegArg({
       num: plan.dimensions.fpsNum,
       den: plan.dimensions.fpsDen,
     });
-    // Set the exact input framerate so the concat demuxer doesn't
-    // PTS-average a fractional rational like `360000/12001` instead
-    // of `30/1` into the output container metadata. `-c copy` is
-    // retained; no re-encode.
-    const concatArgs = [
-      "-r",
-      fpsArg,
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
-      concatListPath,
-      "-c",
-      "copy",
-      "-y",
-      concatOutputPath,
-    ];
-    const concatResult = await runFfmpeg(concatArgs, { signal: abortSignal });
-    if (!concatResult.success) {
-      throw new Error(
-        `[assemble] ffmpeg concat-copy failed (exit ${concatResult.exitCode}): ` +
-          `${concatResult.stderr.slice(-400)}`,
-      );
+
+    // Single-chunk renders bypass the concat demuxer entirely. ffmpeg's
+    // concat demuxer with a one-entry list re-runs as a straight remux of
+    // the single source, and in that path the input-side `-r` flag does
+    // not consistently override the source's PTS-derived r_frame_rate
+    // (observed: `359/12` carrying through to the output container while
+    // the equivalent multi-chunk path produces `30/1` exact). Running a
+    // direct `-c copy` remux with `-r <fps>` as an output flag gives the
+    // muxer the authoritative rate to stamp into the container without
+    // touching the encoded stream. Multi-chunk renders continue through
+    // the concat demuxer where the existing `-r` input flag works.
+    if (chunkPaths.length === 1) {
+      const remuxArgs = ["-i", chunkPaths[0]!, "-c", "copy", "-r", fpsArg, "-y", concatOutputPath];
+      const remuxResult = await runFfmpeg(remuxArgs, { signal: abortSignal });
+      if (!remuxResult.success) {
+        throw new Error(
+          `[assemble] ffmpeg single-chunk remux failed (exit ${remuxResult.exitCode}): ` +
+            `${remuxResult.stderr.slice(-400)}`,
+        );
+      }
+    } else {
+      // Concat list file — one `file '<path>'` per chunk, in order. ffmpeg's
+      // concat demuxer escapes single quotes via `'\''`; we replicate that
+      // here so chunk paths containing quotes don't break the parser.
+      const concatListPath = join(workDir, "concat-list.txt");
+      const concatBody = chunkPaths
+        .map((path) => `file '${path.replace(/'/g, "'\\''")}'`)
+        .join("\n");
+      writeFileSync(concatListPath, `${concatBody}\n`, "utf-8");
+
+      // Set the exact input framerate so the concat demuxer doesn't
+      // PTS-average a fractional rational like `360000/12001` instead
+      // of `30/1` into the output container metadata. `-c copy` is
+      // retained; no re-encode.
+      const concatArgs = [
+        "-r",
+        fpsArg,
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        concatListPath,
+        "-c",
+        "copy",
+        "-y",
+        concatOutputPath,
+      ];
+      const concatResult = await runFfmpeg(concatArgs, { signal: abortSignal });
+      if (!concatResult.success) {
+        throw new Error(
+          `[assemble] ffmpeg concat-copy failed (exit ${concatResult.exitCode}): ` +
+            `${concatResult.stderr.slice(-400)}`,
+        );
+      }
     }
 
     // ── 3. Audio: pad-or-trim then mux ────────────────────────────────────
