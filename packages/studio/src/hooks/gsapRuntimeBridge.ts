@@ -146,7 +146,9 @@ export async function tryGsapDragIntercept(
   const gsapPos = readGsapPositionFromIframe(iframe, selector);
   if (!gsapPos) return false;
 
-  await commitGsapPositionFromDrag(selection, posAnim, offset, gsapPos, { commitMutation });
+  await commitGsapPositionFromDrag(selection, posAnim, offset, gsapPos, iframe, selector, {
+    commitMutation,
+  });
   return true;
 }
 
@@ -171,14 +173,33 @@ async function commitGsapPositionFromDrag(
   anim: GsapAnimation,
   studioOffset: { x: number; y: number },
   gsapPos: { x: number; y: number },
+  iframe: HTMLIFrameElement | null,
+  selector: string,
   callbacks: GsapDragCommitCallbacks,
 ): Promise<void> {
-  const newX = Math.round(gsapPos.x + studioOffset.x);
-  const newY = Math.round(gsapPos.y + studioOffset.y);
+  // CSS composition: translate → rotate → transform. The studioOffset is in
+  // pre-rotation space (CSS translate), but GSAP x/y are in post-CSS-rotate
+  // space (CSS transform). Counter-rotate the offset to match GSAP's frame.
+  const rotStyle = selection.element.style.getPropertyValue("--hf-studio-rotation");
+  const rotDeg = Number.parseFloat(rotStyle) || 0;
+  const rad = (-rotDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const adjX = studioOffset.x * cos - studioOffset.y * sin;
+  const adjY = studioOffset.x * sin + studioOffset.y * cos;
+  const newX = Math.round(gsapPos.x + adjX);
+  const newY = Math.round(gsapPos.y + adjY);
   const clearOffset = () => clearStudioPathOffset(selection.element);
 
   if (anim.keyframes) {
-    await commitKeyframedPosition(selection, anim, newX, newY, callbacks, clearOffset);
+    const runtimeProps = readAllAnimatedProperties(iframe, selector, anim);
+    await commitKeyframedPosition(
+      selection,
+      anim,
+      { ...runtimeProps, x: newX, y: newY },
+      callbacks,
+      clearOffset,
+    );
   } else if (anim.method === "from") {
     await commitFromPosition(selection, anim, studioOffset, callbacks, clearOffset);
   } else if (anim.method === "fromTo") {
@@ -186,7 +207,14 @@ async function commitGsapPositionFromDrag(
   } else {
     // Flat to()/set() — convert to keyframes first so the drag position
     // is captured at the current seek time, not just the tween endpoint.
-    await commitFlatViaKeyframes(selection, anim, newX, newY, callbacks, clearOffset);
+    const runtimeProps = readAllAnimatedProperties(iframe, selector, anim);
+    await commitFlatViaKeyframes(
+      selection,
+      anim,
+      { ...runtimeProps, x: newX, y: newY },
+      callbacks,
+      clearOffset,
+    );
   }
 }
 
@@ -194,8 +222,7 @@ async function commitGsapPositionFromDrag(
 async function commitKeyframedPosition(
   selection: DomEditSelection,
   anim: GsapAnimation,
-  newX: number,
-  newY: number,
+  properties: Record<string, number>,
   callbacks: GsapDragCommitCallbacks,
   beforeReload: () => void,
 ): Promise<void> {
@@ -207,7 +234,7 @@ async function commitKeyframedPosition(
       type: "add-keyframe",
       animationId: anim.id,
       percentage: pct,
-      properties: { x: newX, y: newY },
+      properties,
     },
     { label: `Move layer (keyframe ${pct}%)`, softReload: true, beforeReload },
   );
@@ -222,8 +249,7 @@ async function commitKeyframedPosition(
 async function commitFlatViaKeyframes(
   selection: DomEditSelection,
   anim: GsapAnimation,
-  newX: number,
-  newY: number,
+  properties: Record<string, number>,
   callbacks: GsapDragCommitCallbacks,
   beforeReload: () => void,
 ): Promise<void> {
@@ -241,7 +267,7 @@ async function commitFlatViaKeyframes(
       type: "add-keyframe",
       animationId: anim.id,
       percentage: pct,
-      properties: { x: newX, y: newY },
+      properties,
     },
     { label: `Move layer (keyframe ${pct}%)`, softReload: true, beforeReload },
   );
@@ -304,4 +330,162 @@ async function commitFromToPosition(
     { type: "update-property", animationId: anim.id, property: "y", value: toY },
     { label: "Move (GSAP to y)", softReload: true, beforeReload },
   );
+}
+
+// ── Runtime property reader ───────────────────────────────────────────────
+
+function readAllAnimatedProperties(
+  iframe: HTMLIFrameElement | null,
+  selector: string,
+  anim: GsapAnimation,
+): Record<string, number> {
+  const result: Record<string, number> = {};
+  if (!iframe?.contentWindow) return result;
+  let gsap: IframeGsap | undefined;
+  try {
+    gsap = (iframe.contentWindow as unknown as { gsap?: IframeGsap }).gsap;
+  } catch {
+    return result;
+  }
+  if (!gsap?.getProperty) return result;
+  let doc: Document | null = null;
+  try {
+    doc = iframe.contentDocument;
+  } catch {
+    return result;
+  }
+  const el = doc?.querySelector(selector);
+  if (!el) return result;
+
+  const propKeys = new Set<string>();
+  if (anim.keyframes) {
+    for (const kf of anim.keyframes.keyframes) {
+      for (const p of Object.keys(kf.properties)) {
+        if (typeof kf.properties[p] === "number") propKeys.add(p);
+      }
+    }
+  } else {
+    for (const p of Object.keys(anim.properties)) propKeys.add(p);
+  }
+
+  for (const prop of propKeys) {
+    const val = Number(gsap.getProperty(el, prop));
+    if (Number.isFinite(val)) result[prop] = Math.round(val);
+  }
+  return result;
+}
+
+// ── Resize intercept ──────────────────────────────────────────────────────
+
+export async function tryGsapResizeIntercept(
+  selection: DomEditSelection,
+  size: { width: number; height: number },
+  animations: GsapAnimation[],
+  iframe: HTMLIFrameElement | null,
+  commitMutation: GsapDragCommitCallbacks["commitMutation"],
+  fetchFallbackAnimations?: () => Promise<GsapAnimation[]>,
+): Promise<boolean> {
+  let anim = animations.find(
+    (a) => "width" in a.properties || "height" in a.properties || a.keyframes,
+  );
+  if (!anim && fetchFallbackAnimations) {
+    const fresh = await fetchFallbackAnimations();
+    anim = fresh.find((a) => "width" in a.properties || "height" in a.properties || a.keyframes);
+  }
+  if (!anim) return false;
+
+  const pct = computeCurrentPercentage(selection);
+
+  if (!anim.keyframes) {
+    await commitMutation(
+      selection,
+      { type: "convert-to-keyframes", animationId: anim.id },
+      { label: "Convert to keyframes for resize", skipReload: true },
+    );
+  }
+
+  const selector = selectorForSelection(selection);
+  const runtimeProps = selector ? readAllAnimatedProperties(iframe, selector, anim) : {};
+  const properties = {
+    ...runtimeProps,
+    width: Math.round(size.width),
+    height: Math.round(size.height),
+  };
+
+  await commitMutation(
+    selection,
+    {
+      type: "add-keyframe",
+      animationId: anim.id,
+      percentage: pct,
+      properties,
+    },
+    { label: `Resize (keyframe ${pct}%)`, softReload: true },
+  );
+  return true;
+}
+
+// ── Rotation intercept ────────────────────────────────────────────────────
+
+export async function tryGsapRotationIntercept(
+  selection: DomEditSelection,
+  angle: number,
+  animations: GsapAnimation[],
+  iframe: HTMLIFrameElement | null,
+  commitMutation: GsapDragCommitCallbacks["commitMutation"],
+  fetchFallbackAnimations?: () => Promise<GsapAnimation[]>,
+): Promise<boolean> {
+  let anim = animations.find((a) => "rotation" in a.properties || a.keyframes);
+  if (!anim && fetchFallbackAnimations) {
+    const fresh = await fetchFallbackAnimations();
+    anim = fresh.find((a) => "rotation" in a.properties || a.keyframes);
+  }
+  if (!anim) return false;
+
+  const selector = selectorForSelection(selection);
+  if (!selector) return false;
+
+  let gsapRotation = 0;
+  if (iframe?.contentWindow) {
+    try {
+      const gsap = (
+        iframe.contentWindow as unknown as {
+          gsap?: { getProperty: (el: Element, prop: string) => number };
+        }
+      ).gsap;
+      const doc = iframe.contentDocument;
+      const el = doc?.querySelector(selector);
+      if (gsap?.getProperty && el) {
+        gsapRotation = Number(gsap.getProperty(el, "rotation")) || 0;
+      }
+    } catch {
+      /* cross-origin guard */
+    }
+  }
+
+  const pct = computeCurrentPercentage(selection);
+  const newRotation = Math.round(gsapRotation + angle);
+
+  if (!anim.keyframes) {
+    await commitMutation(
+      selection,
+      { type: "convert-to-keyframes", animationId: anim.id },
+      { label: "Convert to keyframes for rotation", skipReload: true },
+    );
+  }
+
+  const runtimeProps = readAllAnimatedProperties(iframe, selector, anim);
+  const properties = { ...runtimeProps, rotation: newRotation };
+
+  await commitMutation(
+    selection,
+    {
+      type: "add-keyframe",
+      animationId: anim.id,
+      percentage: pct,
+      properties,
+    },
+    { label: `Rotate (keyframe ${pct}%)`, softReload: true },
+  );
+  return true;
 }

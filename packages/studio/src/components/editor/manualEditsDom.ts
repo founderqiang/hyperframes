@@ -223,6 +223,7 @@ function isIdentityAfterTranslateStrip(m: DOMMatrix): boolean {
 }
 
 function stripGsapTranslateFromTransform(element: HTMLElement): void {
+  if (element.hasAttribute(STUDIO_MANUAL_EDIT_GESTURE_ATTR)) return;
   const transform = element.style.getPropertyValue("transform");
   if (!transform || transform === "none") return;
   const DOMMatrixCtor = (element.ownerDocument.defaultView as (Window & typeof globalThis) | null)
@@ -233,8 +234,11 @@ function stripGsapTranslateFromTransform(element: HTMLElement): void {
     if (m.m41 === 0 && m.m42 === 0) return;
     const offsetX = readPxCustomProperty(element, STUDIO_OFFSET_X_PROP);
     const offsetY = readPxCustomProperty(element, STUDIO_OFFSET_Y_PROP);
-    m.m41 -= offsetX;
-    m.m42 -= offsetY;
+    const angle = Math.atan2(m.b, m.a);
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    m.m41 -= offsetX * cos - offsetY * sin;
+    m.m42 -= offsetX * sin + offsetY * cos;
     if (Math.abs(m.m41) < 0.01 && Math.abs(m.m42) < 0.01 && isIdentityAfterTranslateStrip(m)) {
       element.style.removeProperty("transform");
     } else {
