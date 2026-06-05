@@ -6,7 +6,11 @@
  * fallbacks for backward compatibility during migration.
  */
 
-import { totalmem } from "os";
+import {
+  getSystemTotalMb,
+  isLowMemorySystem,
+  LOW_MEMORY_TOTAL_MB_THRESHOLD,
+} from "./services/systemMemory.js";
 
 /**
  * Full engine configuration. All fields are wired through the config
@@ -50,6 +54,16 @@ export interface EngineConfig {
   expectedChromiumMajor?: number;
   /** Force screenshot capture mode (skip BeginFrame even on Linux). */
   forceScreenshot: boolean;
+  /**
+   * Low-memory render profile. When `true`, the orchestrator collapses the
+   * pipeline to its cheapest shape on memory-constrained hosts: it skips the
+   * throwaway auto-worker calibration browser, pins capture to a single
+   * worker (unless the user passed an explicit `--workers`), and prefers
+   * screenshot capture over BeginFrame. Resolved automatically from total
+   * RAM (`isLowMemorySystem()`); force on/off via `PRODUCER_LOW_MEMORY_MODE`
+   * or the `--low-memory-mode` CLI flag.
+   */
+  lowMemoryMode: boolean;
   /**
    * Opt-in: page-side shader-transition compositing.
    *
@@ -194,6 +208,9 @@ export const DEFAULT_CONFIG: EngineConfig = {
   browserTimeout: 120_000,
   protocolTimeout: 300_000,
   forceScreenshot: false,
+  // Auto-detected per host in `resolveConfig`; defaults off for the raw
+  // DEFAULT_CONFIG (used directly by tests and worker-sizing fallbacks).
+  lowMemoryMode: false,
   enablePageSideCompositing: true,
 
   enableChunkedEncode: false,
@@ -221,21 +238,17 @@ export const DEFAULT_CONFIG: EngineConfig = {
   debug: false,
 };
 
-function getSystemTotalMb(): number {
-  return Math.floor(totalmem() / (1024 * 1024));
-}
-
 function memoryAdaptiveCacheLimit(): number {
   const total = getSystemTotalMb();
   if (total < 4096) return 32;
-  if (total <= 8192) return 64;
+  if (total <= LOW_MEMORY_TOTAL_MB_THRESHOLD) return 64;
   return DEFAULT_CONFIG.frameDataUriCacheLimit;
 }
 
 function memoryAdaptiveCacheBytesMb(): number {
   const total = getSystemTotalMb();
   if (total < 4096) return 128;
-  if (total <= 8192) return 256;
+  if (total <= LOW_MEMORY_TOTAL_MB_THRESHOLD) return 256;
   return DEFAULT_CONFIG.frameDataUriCacheBytesLimitMb;
 }
 
@@ -262,6 +275,13 @@ export function resolveConfig(overrides?: Partial<EngineConfig>): EngineConfig {
     if (raw === "hardware" || raw === "software" || raw === "auto") return raw;
     return DEFAULT_CONFIG.browserGpuMode;
   };
+  // Tri-state: explicit on/off via env, otherwise auto-detect from total RAM.
+  const resolveLowMemoryMode = (): boolean => {
+    const raw = env("PRODUCER_LOW_MEMORY_MODE")?.toLowerCase();
+    if (raw === "true" || raw === "on" || raw === "1") return true;
+    if (raw === "false" || raw === "off" || raw === "0") return false;
+    return isLowMemorySystem();
+  };
 
   // Env-var layer (backward compat)
   const fromEnv: Partial<EngineConfig> = {
@@ -287,6 +307,7 @@ export function resolveConfig(overrides?: Partial<EngineConfig>): EngineConfig {
       : undefined,
 
     forceScreenshot: envBool("PRODUCER_FORCE_SCREENSHOT", DEFAULT_CONFIG.forceScreenshot),
+    lowMemoryMode: resolveLowMemoryMode(),
     enablePageSideCompositing: envBool(
       "HF_PAGE_SIDE_COMPOSITING",
       DEFAULT_CONFIG.enablePageSideCompositing,
