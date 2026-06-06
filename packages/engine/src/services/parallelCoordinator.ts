@@ -51,6 +51,7 @@ export interface WorkerResult {
   durationMs: number;
   perf?: CapturePerfSummary;
   error?: string;
+  diagnostics?: string[];
 }
 
 export interface ParallelProgress {
@@ -76,6 +77,7 @@ export interface WorkerSizingConfig extends Partial<
 
 const MEMORY_PER_WORKER_MB = 256;
 const MIN_WORKERS = 1;
+const MAX_WORKER_DIAGNOSTIC_LINES = 8;
 // Hard ceiling on explicit `--workers N` requests. Above this, the cost of
 // CDP-protocol dispatch through Node's main event loop and OS scheduling
 // noise overwhelms any further parallelism. Bumped from 10 → 24 in hf#732
@@ -94,6 +96,31 @@ function defaultSafeMaxWorkers(): number {
   return Math.max(6, Math.min(16, Math.floor(cpus().length / 8)));
 }
 const MIN_FRAMES_PER_WORKER = 30;
+
+export function selectWorkerDiagnostics(
+  lines: readonly string[],
+  maxLines: number = MAX_WORKER_DIAGNOSTIC_LINES,
+): string[] {
+  return lines
+    .filter((line) =>
+      /\[(FrameCapture:ERROR|Browser:ERROR|Browser:PAGEERROR|Browser:REQUESTFAILED|Browser:HTTP\d{3})\]/.test(
+        line,
+      ),
+    )
+    .slice(-maxLines);
+}
+
+function compactDiagnosticLine(line: string): string {
+  return line.replace(/\s+/g, " ").trim();
+}
+
+export function formatWorkerFailure(result: WorkerResult): string {
+  const base = `Worker ${result.workerId}: ${result.error ?? "unknown error"}`;
+  if (!result.diagnostics || result.diagnostics.length === 0) return base;
+
+  const diagnostics = result.diagnostics.map(compactDiagnosticLine).join(" | ");
+  return `${base}; diagnostics: ${diagnostics}`;
+}
 
 export function calculateOptimalWorkers(
   totalFrames: number,
@@ -287,6 +314,7 @@ async function executeWorkerTask(
     };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
+    const diagnostics = session ? selectWorkerDiagnostics(session.browserConsoleBuffer) : [];
     return {
       workerId: task.workerId,
       framesCaptured,
@@ -295,6 +323,7 @@ async function executeWorkerTask(
       durationMs: Date.now() - startTime,
       perf,
       error: errMsg,
+      diagnostics: diagnostics.length > 0 ? diagnostics : undefined,
     };
   } finally {
     if (session) await closeCaptureSession(session).catch(() => {});
@@ -351,7 +380,7 @@ export async function executeParallelCapture(
 
   const errors = results.filter((r) => r.error);
   if (errors.length > 0) {
-    const errorMessages = errors.map((e) => `Worker ${e.workerId}: ${e.error}`).join("; ");
+    const errorMessages = errors.map(formatWorkerFailure).join("; ");
     throw new Error(`[Parallel] Capture failed: ${errorMessages}`);
   }
 

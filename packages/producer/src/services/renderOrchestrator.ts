@@ -2184,7 +2184,13 @@ export async function executeRenderJob(
       workers: job.config.workers ?? "auto",
       protocolTimeout: cfg.protocolTimeout,
       browserConsoleErrors: lastBrowserConsole
-        .filter((l) => l.includes("ERROR") || l.includes("PAGEERROR"))
+        .filter(
+          (l) =>
+            l.includes("ERROR") ||
+            l.includes("PAGEERROR") ||
+            l.includes("REQUESTFAILED") ||
+            /\[Browser:HTTP\d{3}\]/.test(l),
+        )
         .slice(-5),
     });
 

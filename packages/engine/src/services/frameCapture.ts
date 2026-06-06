@@ -79,6 +79,79 @@ export interface CaptureSession {
 const BROWSER_CONSOLE_BUFFER_SIZE = 200;
 const CAPTURE_SESSION_CLOSE_TIMEOUT_MS = 5_000;
 
+function appendBrowserDiagnostic(session: CaptureSession, text: string): void {
+  session.browserConsoleBuffer.push(text);
+  if (session.browserConsoleBuffer.length > BROWSER_CONSOLE_BUFFER_SIZE) {
+    session.browserConsoleBuffer.shift();
+  }
+}
+
+export function sanitizeDiagnosticUrl(input: string): string {
+  if (!input) return "(empty)";
+  if (input.startsWith("data:")) return "data:<redacted>";
+  if (input.startsWith("blob:")) return "blob:<redacted>";
+  if (input.startsWith("/")) {
+    try {
+      const url = new URL(input, "http://hyperframes.local");
+      return url.pathname;
+    } catch {
+      return input;
+    }
+  }
+
+  try {
+    const url = new URL(input);
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return input;
+  }
+}
+
+export function formatNavigationFailureDiagnostic(input: {
+  captureMode: CaptureMode;
+  url: string;
+  timeoutMs: number;
+  elapsedMs: number;
+  error: unknown;
+}): string {
+  const message = input.error instanceof Error ? input.error.message : String(input.error);
+  return (
+    `[FrameCapture:ERROR] page.goto failed ` +
+    `mode=${input.captureMode} timeoutMs=${input.timeoutMs} elapsedMs=${input.elapsedMs} ` +
+    `url=${sanitizeDiagnosticUrl(input.url)} error=${message}`
+  );
+}
+
+export function formatRequestFailureDiagnostic(input: {
+  method: string;
+  resourceType: string;
+  url: string;
+  failureText: string;
+}): string {
+  return (
+    `[Browser:REQUESTFAILED] ${input.method} ${sanitizeDiagnosticUrl(input.url)} ` +
+    `resource=${input.resourceType} error=${input.failureText}`
+  );
+}
+
+export function formatHttpErrorDiagnostic(input: {
+  method: string;
+  resourceType: string;
+  url: string;
+  status: number;
+  statusText: string;
+}): string {
+  const statusText = input.statusText ? ` ${input.statusText}` : "";
+  return (
+    `[Browser:HTTP${input.status}] ${input.method} ${sanitizeDiagnosticUrl(input.url)} ` +
+    `resource=${input.resourceType}${statusText}`
+  );
+}
+
 /**
  * Fixed warmup-loop iteration count used when `CaptureOptions.lockWarmupTicks`
  * is `true`. Picked to roughly match the median tick count observed by the
@@ -721,10 +794,7 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
       console.log(`${prefix} ${text}`);
     }
 
-    session.browserConsoleBuffer.push(`${prefix} ${text}`);
-    if (session.browserConsoleBuffer.length > BROWSER_CONSOLE_BUFFER_SIZE) {
-      session.browserConsoleBuffer.shift();
-    }
+    appendBrowserDiagnostic(session, `${prefix} ${text}`);
   });
 
   page.on("pageerror", (err) => {
@@ -738,10 +808,36 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
       console.error(text);
     }
 
-    session.browserConsoleBuffer.push(text);
-    if (session.browserConsoleBuffer.length > BROWSER_CONSOLE_BUFFER_SIZE) {
-      session.browserConsoleBuffer.shift();
-    }
+    appendBrowserDiagnostic(session, text);
+  });
+
+  page.on("requestfailed", (request) => {
+    appendBrowserDiagnostic(
+      session,
+      formatRequestFailureDiagnostic({
+        method: request.method(),
+        resourceType: request.resourceType(),
+        url: request.url(),
+        failureText: request.failure()?.errorText ?? "unknown",
+      }),
+    );
+  });
+
+  page.on("response", (response) => {
+    const status = response.status();
+    if (status < 400) return;
+
+    const request = response.request();
+    appendBrowserDiagnostic(
+      session,
+      formatHttpErrorDiagnostic({
+        method: request.method(),
+        resourceType: request.resourceType(),
+        url: response.url(),
+        status,
+        statusText: response.statusText(),
+      }),
+    );
   });
 
   // Navigate to the file server
@@ -752,10 +848,27 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
   const logInitPhase = (phase: string) => {
     console.log(`[initSession:${session.captureMode}] ${phase} (${Date.now() - initStart}ms)`);
   };
+  const gotoEntryPage = async (): Promise<void> => {
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: pageNavigationTimeout });
+    } catch (error) {
+      appendBrowserDiagnostic(
+        session,
+        formatNavigationFailureDiagnostic({
+          captureMode: session.captureMode,
+          url,
+          timeoutMs: pageNavigationTimeout,
+          elapsedMs: Date.now() - initStart,
+          error,
+        }),
+      );
+      throw error;
+    }
+  };
 
   if (session.captureMode === "screenshot") {
     // Screenshot mode: standard navigation, rAF works normally
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: pageNavigationTimeout });
+    await gotoEntryPage();
     logInitPhase("page.goto complete");
 
     const pageReadyTimeout =
@@ -894,7 +1007,7 @@ export async function initializeSession(session: CaptureSession): Promise<void> 
   warmupLoopPromise.catch(() => {});
   logInitPhase("warmup loop started");
 
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: pageNavigationTimeout });
+  await gotoEntryPage();
   logInitPhase("page.goto complete");
 
   // Poll for window.__hf readiness using manual evaluate loop (waitForFunction

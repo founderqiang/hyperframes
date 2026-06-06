@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
   calculateOptimalWorkers,
   distributeFrames,
+  formatWorkerFailure,
+  selectWorkerDiagnostics,
   shouldVerifyWorkerGpu,
 } from "./parallelCoordinator.js";
 import type { EngineConfig } from "../config.js";
@@ -71,6 +73,42 @@ describe("calculateOptimalWorkers", () => {
     });
 
     expect(workers).toBe(4);
+  });
+});
+
+describe("worker failure diagnostics", () => {
+  it("keeps only actionable worker diagnostics and caps the tail", () => {
+    const diagnostics = selectWorkerDiagnostics(
+      [
+        "[Browser] harmless log",
+        "[Browser:WARN] noisy warning",
+        "[Browser:REQUESTFAILED] GET https://cdn.example.com/a.mp4 resource=media error=net::ERR_FAILED",
+        "[Browser:HTTP404] GET https://cdn.example.com/missing.png resource=image Not Found",
+        "[FrameCapture:ERROR] page.goto failed mode=screenshot timeoutMs=60000 elapsedMs=60001 url=http://127.0.0.1:4173/index.html error=timeout",
+      ],
+      2,
+    );
+
+    expect(diagnostics).toEqual([
+      "[Browser:HTTP404] GET https://cdn.example.com/missing.png resource=image Not Found",
+      "[FrameCapture:ERROR] page.goto failed mode=screenshot timeoutMs=60000 elapsedMs=60001 url=http://127.0.0.1:4173/index.html error=timeout",
+    ]);
+  });
+
+  it("adds compact diagnostics to the worker failure message", () => {
+    expect(
+      formatWorkerFailure({
+        workerId: 1,
+        framesCaptured: 0,
+        startFrame: 0,
+        endFrame: 30,
+        durationMs: 60_100,
+        error: "Navigation timeout of 60000 ms exceeded",
+        diagnostics: ["[FrameCapture:ERROR] page.goto failed\n  mode=screenshot timeoutMs=60000"],
+      }),
+    ).toBe(
+      "Worker 1: Navigation timeout of 60000 ms exceeded; diagnostics: [FrameCapture:ERROR] page.goto failed mode=screenshot timeoutMs=60000",
+    );
   });
 });
 
