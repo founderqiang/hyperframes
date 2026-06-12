@@ -25,16 +25,16 @@ describe("manual editing availability", () => {
     expect(availability.STUDIO_MOTION_PANEL_ENABLED).toBe(false);
   });
 
-  it("disables GSAP drag intercept by default", async () => {
+  it("enables GSAP drag intercept by default", async () => {
     const availability = await loadAvailabilityWithEnv({});
-    expect(availability.STUDIO_GSAP_DRAG_INTERCEPT_ENABLED).toBe(false);
+    expect(availability.STUDIO_GSAP_DRAG_INTERCEPT_ENABLED).toBe(true);
   });
 
-  it("enables GSAP drag intercept when env var is set", async () => {
+  it("disables GSAP drag intercept when env var is false", async () => {
     const availability = await loadAvailabilityWithEnv({
-      VITE_STUDIO_ENABLE_GSAP_DRAG_INTERCEPT: "true",
+      VITE_STUDIO_ENABLE_GSAP_DRAG_INTERCEPT: "false",
     });
-    expect(availability.STUDIO_GSAP_DRAG_INTERCEPT_ENABLED).toBe(true);
+    expect(availability.STUDIO_GSAP_DRAG_INTERCEPT_ENABLED).toBe(false);
   });
 
   it("disables preview selection when the inspector panel flag is explicitly off", async () => {
