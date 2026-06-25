@@ -44,6 +44,19 @@ interface SlideNotesTarget {
 
 type SlideshowManifest = NonNullable<ReturnType<typeof parseSlideshowManifest>>;
 
+// Autoplay re-assert poll (see playSceneDocumentMedia): the player drives clips
+// during bootstrap and on enter, so a single play() loses the race; we poll
+// briefly until the clip is advancing.
+const AUTOPLAY_STEP_MS = 150;
+const AUTOPLAY_MAX_MS = 6000;
+interface AutoplayPollState {
+  started: boolean;
+  lastTime: number;
+  advancingTicks: number;
+  waited: number;
+  warned: boolean;
+}
+
 type PlayerElement = HTMLElement & {
   seek(t: number): void;
   play(): void;
@@ -173,6 +186,9 @@ export class HyperframesSlideshow extends HTMLElement {
   private audienceMutedPlaybackKeys = new Set<string>();
   private blockedAudienceMedia = new Map<string, PresenterMediaMessage>();
   private audienceMediaUnlockButton: HTMLButtonElement | null = null;
+  // Bumped whenever autoplay starts or media is stopped (slide change), so a
+  // pending re-assert from a previous autoplay can't replay a clip we've left.
+  private autoplayToken = 0;
 
   /** Whether audio is currently muted. Reflects `data-hf-muted` attribute. */
   get muted(): boolean {
@@ -237,6 +253,7 @@ export class HyperframesSlideshow extends HTMLElement {
   disconnectedCallback(): void {
     this.disconnected = true;
     this.initGeneration += 1;
+    this.autoplayToken++; // cancel any in-flight autoplay re-assert loop
     if (this.initTimer !== null) {
       clearTimeout(this.initTimer);
       this.initTimer = null;
@@ -390,6 +407,7 @@ export class HyperframesSlideshow extends HTMLElement {
           playerEl.stopMedia?.();
           this.stopDocumentMedia();
         },
+        playSceneMedia: (sceneId) => this.playSceneDocumentMedia(sceneId),
         get currentTime() {
           return playerEl.currentTime;
         },
@@ -1062,10 +1080,91 @@ export class HyperframesSlideshow extends HTMLElement {
   }
 
   private stopDocumentMedia(): void {
+    // Invalidate any in-flight autoplay re-assert so leaving a slide can't be
+    // undone by a pending timeout replaying the clip we just paused.
+    this.autoplayToken++;
     const doc = this.ownerDocument;
     for (const el of doc.querySelectorAll("video, audio")) {
       if (el instanceof HTMLMediaElement) el.pause();
     }
+  }
+
+  /**
+   * Play the `<video>` inside a given scene from its start — the runtime side of
+   * a slide's `autoplay`. Reaches into the same-origin composition iframe (which
+   * is pointer-events:none, so its own controls can't be clicked). The play()
+   * fires a "play" event that wireSlideshowMedia() mirrors to any audience
+   * window, so this runs on the presenter only — the audience drives its copy
+   * from those mirrored events, never on its own.
+   *
+   * Robust against two timing hazards: (1) the clip may not be in the iframe DOM
+   * yet at construction (first slide), and (2) the player drives clips during
+   * bootstrap and seeks the timeline on enter — both pause the clip (and reject
+   * an in-flight play() with AbortError), so a single play() loses the race. So
+   * we poll on a short timer: locate the clip, then assert play() until it is
+   * actually advancing across two ticks, then stop — leaving a later real user
+   * pause (presenter media controls) alone. A user gesture within the window
+   * (real browsers gate autoplay on one) lets the next tick's play() take.
+   * Token-guarded, so leaving the slide or disconnecting cancels it.
+   */
+  private playSceneDocumentMedia(sceneId: string): void {
+    if (this.resolveMode() === "audience") return;
+    const safeId = sceneId.replace(/["\\]/g, "\\$&");
+    const token = ++this.autoplayToken;
+    const state: AutoplayPollState = {
+      started: false,
+      lastTime: -1,
+      advancingTicks: 0,
+      waited: 0,
+      warned: false,
+    };
+    const tick = (): void => {
+      if (token !== this.autoplayToken) return; // left the slide / disconnected
+      const done = this.stepAutoplay(safeId, state);
+      state.waited += AUTOPLAY_STEP_MS;
+      if (!done && state.waited <= AUTOPLAY_MAX_MS) window.setTimeout(tick, AUTOPLAY_STEP_MS);
+    };
+    tick();
+  }
+
+  /** Locate the scene's clip in the composition iframe(s). */
+  private findSceneVideo(safeId: string): HTMLVideoElement | null {
+    for (const player of this.mediaPlayerElements()) {
+      const doc = this.playerFrameDocument(player);
+      const video = doc?.querySelector(`[data-composition-id="${safeId}"] video`) ?? null;
+      if (video instanceof HTMLVideoElement) return video;
+    }
+    return null;
+  }
+
+  /** One autoplay poll step. Returns true once the clip is confirmed playing. */
+  private stepAutoplay(safeId: string, state: AutoplayPollState): boolean {
+    const video = this.findSceneVideo(safeId);
+    if (!video) return false;
+    if (!state.started) {
+      state.started = true;
+      video.muted = this._muted || video.defaultMuted;
+      try {
+        video.currentTime = 0;
+      } catch {
+        // not seekable yet — play from wherever it is
+      }
+    }
+    const advancing = !video.paused && video.currentTime > state.lastTime;
+    state.lastTime = video.currentTime;
+    if (advancing) return ++state.advancingTicks >= 2; // confirmed playing — stop polling
+    state.advancingTicks = 0;
+    void video.play().catch((err: unknown) => {
+      // Expected during the poll: AbortError (a timeline-sync seek interrupts
+      // the play) and NotAllowedError (autoplay gated on a user gesture). Surface
+      // anything else once — a real failure (bad src, decode) shouldn't be silent.
+      const name = err instanceof DOMException ? err.name : "";
+      if (name !== "AbortError" && name !== "NotAllowedError" && !state.warned) {
+        state.warned = true;
+        console.warn("[hyperframes-slideshow] autoplay play() failed:", err);
+      }
+    });
+    return false;
   }
 
   private presenterNotesDeckKey(): string {

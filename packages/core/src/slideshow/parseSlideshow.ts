@@ -44,16 +44,21 @@ export function parseSlideshowManifest(html: string): SlideshowManifest | null {
   return parsed;
 }
 
+function isOptionalNumberArray(v: unknown): boolean {
+  return v === undefined || (Array.isArray(v) && v.every((n) => typeof n === "number"));
+}
+
+function isOptionalBoolean(v: unknown): v is boolean | undefined {
+  return v === undefined || typeof v === "boolean";
+}
+
 function isSlideRef(v: unknown): v is SlideRef {
   if (typeof v !== "object" || v === null) return false;
   const r = v as Record<string, unknown>;
   if (typeof r["sceneId"] !== "string") return false;
-  if (
-    r["fragments"] !== undefined &&
-    !(Array.isArray(r["fragments"]) && r["fragments"].every((n) => typeof n === "number"))
-  )
-    return false;
+  if (!isOptionalNumberArray(r["fragments"])) return false;
   if (r["hotspots"] !== undefined && !Array.isArray(r["hotspots"])) return false;
+  if (!isOptionalBoolean(r["autoplay"])) return false;
   return true;
 }
 
