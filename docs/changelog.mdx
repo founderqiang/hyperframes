@@ -9,6 +9,20 @@ Recent HyperFrames releases, including user-facing features, fixes, and migratio
 {/* New release entries are prepended by `bun run changelog:draft <version> --write`. */}
 
 <Update
+  label="HyperFrames v0.7.24"
+  description="Released - 2026-07-01"
+  tags={["Release", "Studio"]}
+>
+Follow-up to v0.7.23's resolver-shadow filter extension: single-flights the reorder source read (one fetch per batch instead of one per unresolved target) and tags loose-match `sourceHfIdCount: 0` events so they're distinguishable on the telemetry dashboard.
+
+## Fixes
+
+- **Studio:** Single-flight reorder source read, tag loose-match sourceHfIdCount, brace style ([69b927a30](https://github.com/heygen-com/hyperframes/commit/69b927a300c9c9f8f74cd9cc55dff98abc0e5974))
+
+[View the full commit range](https://github.com/heygen-com/hyperframes/compare/v0.7.23...v0.7.24).
+</Update>
+
+<Update
   label="HyperFrames v0.7.23"
   description="Released - 2026-07-01"
   tags={["Release", "Studio", "Player", "Runtime"]}
