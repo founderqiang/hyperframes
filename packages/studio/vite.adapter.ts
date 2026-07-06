@@ -14,33 +14,15 @@ import type { ViteDevServer } from "vite";
 import {
   type ResolvedProject,
   type RenderJobState,
-  type MediaProcessingJobState,
   type StudioApiAdapter,
+  type BackgroundRemovalRender,
+  createBackgroundRemovalJob,
   createProjectSignature,
 } from "@hyperframes/studio-server";
 import type { RegistryItem } from "@hyperframes/core/registry";
 import { createRetryingModuleLoader, ensureProducerDist } from "./vite.producer";
 import { createStudioDevRenderBodyScripts } from "./vite.studioMotion";
 import { generateThumbnail, findSystemChrome } from "./vite.browser";
-
-type BackgroundRemovalRender = (options: {
-  inputPath: string;
-  outputPath: string;
-  backgroundOutputPath?: string;
-  device?: "auto" | "cpu" | "coreml" | "cuda";
-  quality?: "fast" | "balanced" | "best";
-  onProgress?: (
-    event:
-      | { kind: "info"; message: string }
-      | { kind: "metadata"; width: number; height: number; fps: number; frameCount: number }
-      | { kind: "frame"; index: number; total: number; avgMsPerFrame: number },
-  ) => void;
-}) => Promise<{
-  provider: string;
-  framesProcessed: number;
-  durationSeconds: number;
-  avgMsPerFrame: number;
-}>;
 
 export function isPathWithin(parentDir: string, childPath: string): boolean {
   const childRelativePath = relative(resolve(parentDir), resolve(childPath));
@@ -274,68 +256,14 @@ export function createViteAdapter(dataDir: string, server: ViteDevServer): Studi
       return state;
     },
 
-    startBackgroundRemoval(opts): MediaProcessingJobState {
-      const state: MediaProcessingJobState = {
-        id: opts.jobId,
-        status: "processing",
-        progress: 0,
-        stage: "Preparing background removal",
-        inputAssetPath: opts.inputAssetPath,
-        outputAssetPath: opts.outputAssetPath,
-        outputPath: opts.outputPath,
-        ...(opts.backgroundOutputPath ? { backgroundOutputPath: opts.backgroundOutputPath } : {}),
-        ...(opts.backgroundOutputAssetPath
-          ? { backgroundOutputAssetPath: opts.backgroundOutputAssetPath }
-          : {}),
-      };
-
-      (async () => {
-        try {
-          const mod = await server.ssrLoadModule(
-            resolve(__dirname, "../cli/src/background-removal/pipeline.ts"),
-          );
-          const render = mod.render as BackgroundRemovalRender;
-          const result = await render({
-            inputPath: opts.inputPath,
-            outputPath: opts.outputPath,
-            backgroundOutputPath: opts.backgroundOutputPath,
-            device: opts.device,
-            quality: opts.quality,
-            onProgress: (event) => {
-              if (event.kind === "info") {
-                state.stage = event.message;
-                return;
-              }
-              if (event.kind === "metadata") {
-                state.stage = `Source ${event.width}×${event.height}`;
-                state.progress = 2;
-                return;
-              }
-              state.progress = event.total
-                ? Math.min(99, Math.floor((event.index / event.total) * 100))
-                : 0;
-              state.stage = event.total
-                ? `Removing background ${event.index}/${event.total}`
-                : `Removing background frame ${event.index}`;
-              state.framesProcessed = event.index;
-              state.avgMsPerFrame = event.avgMsPerFrame;
-            },
-          });
-          state.status = "complete";
-          state.progress = 100;
-          state.stage = "Complete";
-          state.provider = result.provider;
-          state.framesProcessed = result.framesProcessed;
-          state.durationSeconds = result.durationSeconds;
-          state.avgMsPerFrame = result.avgMsPerFrame;
-        } catch (err) {
-          state.status = "failed";
-          state.error = err instanceof Error ? err.message : String(err);
-          state.stage = "Failed";
-        }
-      })();
-
-      return state;
+    startBackgroundRemoval(opts) {
+      return createBackgroundRemovalJob(opts, async (renderOpts) => {
+        const mod = await server.ssrLoadModule(
+          resolve(__dirname, "../cli/src/background-removal/pipeline.ts"),
+        );
+        const render = mod.render as BackgroundRemovalRender;
+        return render(renderOpts);
+      });
     },
 
     async generateThumbnail(opts) {
