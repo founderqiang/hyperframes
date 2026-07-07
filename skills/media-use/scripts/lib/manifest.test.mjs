@@ -8,6 +8,7 @@ import {
   findByPrompt,
   findByEntity,
   nextId,
+  normalizePrompt,
   manifestPath,
   mediaDir,
   typeDirPath,
@@ -114,6 +115,20 @@ function runTests() {
     cleanup();
   });
 
+  test("findByPrompt matches across case and whitespace variants", () => {
+    setup();
+    appendRecord(tmp, makeRecord({ provenance: { provider: "x", prompt: "calm ambient piano" } }));
+    assert.ok(findByPrompt(tmp, "Calm Ambient Piano", "bgm"), "case-insensitive");
+    assert.ok(findByPrompt(tmp, "  calm   ambient  piano ", "bgm"), "whitespace-insensitive");
+    assert.equal(findByPrompt(tmp, "calm ambient guitar", "bgm"), null, "still a real miss");
+    cleanup();
+  });
+
+  test("normalizePrompt trims, lowercases, collapses whitespace", () => {
+    assert.equal(normalizePrompt("  Upbeat   Tech  Launch "), "upbeat tech launch");
+    assert.equal(normalizePrompt(null), "");
+  });
+
   test("findByEntity matches case-insensitively", () => {
     setup();
     appendRecord(tmp, makeRecord({ entity: "GitHub", type: "icon" }));
@@ -203,6 +218,10 @@ function runTests() {
     assert.ok(found);
     assert.equal(found.reusable, true);
     assert.equal(found.sha, sha);
+
+    // cross-project reuse must survive trivial prompt variation, not just
+    // byte-identical intents (the whole point of normalizePrompt).
+    assert.ok(cacheGet("  Cache   Test ", "bgm"), "cacheGet is case/whitespace-insensitive");
     cleanup();
   });
 

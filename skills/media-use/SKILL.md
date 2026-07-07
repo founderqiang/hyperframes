@@ -111,8 +111,8 @@ leaving the project + global cache and any local provider.
 
 ## How it works
 
-1. Check project `.media/manifest.jsonl` for exact-prompt match
-2. Scan existing `assets/` directory for unregistered files matching the need
+1. Check project `.media/manifest.jsonl` for a prompt match (case- and whitespace-insensitive)
+2. Scan existing `assets/` directory for unregistered files that share a word with the need
 3. Check global cache `~/.media/` for reusable asset
 4. Search via provider (HeyGen audio catalog, HeyGen asset search)
 5. Freeze file to `.media/<type>/`, register in manifest, regenerate `index.md`
@@ -148,7 +148,7 @@ icon_001   icon   -     200×200    .media/images/icon_001.png    rocket
 
 ## Cross-project reuse
 
-Assets are cached automatically on resolve. Every resolved/ingested asset is auto-promoted to the global cache at `~/.media/`, so subsequent resolves for the same prompt, in any project, hit the cache with no re-download and no provider call.
+Assets are cached automatically on resolve. Every resolved/ingested asset is auto-promoted to the global cache at `~/.media/`, so subsequent resolves for the same (or near-identical) prompt, in any project, hit the cache with no re-download and no provider call.
 
 ## Files
 

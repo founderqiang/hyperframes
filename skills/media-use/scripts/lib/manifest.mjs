@@ -64,11 +64,25 @@ export function appendRecord(projectDir, record) {
   appendFileSync(p, line);
 }
 
+// Match prompts forgivingly. Agents rarely re-emit a byte-identical intent, so
+// keying cache lookups on exact equality meant "Calm piano" and "calm  piano"
+// re-searched and re-downloaded. Normalize (trim, lowercase, collapse internal
+// whitespace) on both sides; the raw prompt is still stored for audit.
+export function normalizePrompt(prompt) {
+  return String(prompt ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
 export function findByPrompt(projectDir, prompt, type) {
+  const key = normalizePrompt(prompt);
+  if (!key) return null;
   const records = readManifest(projectDir);
   return (
-    records.find((r) => r.provenance?.prompt === prompt && (type == null || r.type === type)) ||
-    null
+    records.find(
+      (r) => normalizePrompt(r.provenance?.prompt) === key && (type == null || r.type === type),
+    ) || null
   );
 }
 

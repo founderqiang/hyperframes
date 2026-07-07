@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync } from
 import { join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { readManifest, appendRecord } from "./manifest.mjs";
+import { readManifest, appendRecord, normalizePrompt } from "./manifest.mjs";
 
 const SCHEMA_PREFIX = "mu-v1-";
 const KEY_HEX_CHARS = 16;
@@ -43,9 +43,14 @@ function validateCacheHit(match) {
 }
 
 export function cacheGet(prompt, type) {
+  const key = normalizePrompt(prompt);
+  if (!key) return null;
   return validateCacheHit(
     readGlobalManifest().find(
-      (r) => r.reusable && r.provenance?.prompt === prompt && (type == null || r.type === type),
+      (r) =>
+        r.reusable &&
+        normalizePrompt(r.provenance?.prompt) === key &&
+        (type == null || r.type === type),
     ),
   );
 }

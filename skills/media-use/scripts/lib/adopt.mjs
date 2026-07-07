@@ -96,16 +96,49 @@ export function adoptExistingAssets(projectDir) {
   return adopted;
 }
 
+// Common filler words that should never, on their own, make a filename match an
+// intent (e.g. intent "the rocket" must not adopt "the-video.mp4").
+const MATCH_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "this",
+  "that",
+  "your",
+  "our",
+]);
+
+// Split into lowercased word tokens of length >= 3, minus stopwords.
+function matchTokens(text) {
+  return new Set(
+    String(text)
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t.length >= 3 && !MATCH_STOPWORDS.has(t)),
+  );
+}
+
+// Adopt a pre-existing assets/ file only when it shares a meaningful word with
+// the intent. The old test — `name.includes(intent) || intent.includes(name)` —
+// silently returned the WRONG file: "whoosh" grabbed a stray who.mp3, and a
+// one-letter filename matched every intent. A false negative just falls through
+// to a catalog search (safe); a false positive ships the wrong asset. So bias to
+// precision: require a shared token, don't guess from substrings.
 export function findExistingAsset(projectDir, intent, type) {
   const assetsDir = join(projectDir, "assets");
   if (!existsSync(assetsDir)) return null;
-  const lower = intent.toLowerCase();
+  const intentTokens = matchTokens(intent);
+  if (intentTokens.size === 0) return null;
   for (const rel of walkDir(assetsDir)) {
     const t = inferType(rel);
     if (!t || (type && t !== type)) continue;
-    const name = basename(rel, extname(rel)).toLowerCase().replace(/[-_]/g, " ");
-    if (name.includes(lower) || lower.includes(name)) {
-      return { relativePath: `assets/${rel}`, type: t, name: basename(rel, extname(rel)) };
+    const stem = basename(rel, extname(rel));
+    for (const tok of matchTokens(stem)) {
+      if (intentTokens.has(tok)) {
+        return { relativePath: `assets/${rel}`, type: t, name: stem };
+      }
     }
   }
   return null;
