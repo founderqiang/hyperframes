@@ -1,6 +1,7 @@
 import { formatTime } from "../lib/time";
 import { roundToCenti } from "../../utils/rounding";
 import { resolveContextOrder, resolveStackingContextKey } from "../lib/layerOrdering";
+import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
 
 const roundToCentiseconds = roundToCenti;
 
@@ -32,7 +33,7 @@ export interface TimelineStackingReorderIntent {
   siblingKeys: string[];
 }
 
-interface TimelineStackingOrderItem {
+export interface TimelineStackingOrderItem {
   key: string;
   track: number;
   zIndex: number;
@@ -41,9 +42,9 @@ interface TimelineStackingOrderItem {
   compositionAncestors: readonly string[];
 }
 
-function toStackingOrderItem(element: TimelineStackingElement): TimelineStackingOrderItem {
+export function toStackingOrderItem(element: TimelineStackingElement): TimelineStackingOrderItem {
   return {
-    key: element.key ?? element.id,
+    key: getTimelineElementIdentity(element),
     track: element.track,
     zIndex: element.zIndex ?? 0,
     stackingContextId: element.stackingContextId ?? null,
@@ -77,8 +78,9 @@ export function resolveTimelineStackingReorderByTargetTrack(args: {
 }): TimelineStackingReorderIntent | null {
   const orderedSiblings = resolveContextSiblings(args.element, args.elements);
   if (orderedSiblings.length <= 1) return null;
-  const draggedKey = args.element.key ?? args.element.id;
-  const fromIndex = orderedSiblings.findIndex((sibling) => sibling.key === draggedKey);
+  const fromIndex = orderedSiblings.findIndex(
+    (sibling) => sibling.key === getTimelineElementIdentity(args.element),
+  );
   if (fromIndex < 0) return null;
   const toIndex = orderedSiblings.findIndex((sibling) => sibling.track === args.targetTrack);
   if (toIndex < 0) return null;
@@ -178,7 +180,7 @@ export function resolveTimelineMove(
   // stacking context (top = front), rather than changing the raw track number.
   if (input.stackingElement && input.stackingElements) {
     const orderedSiblings = resolveContextSiblings(input.stackingElement, input.stackingElements);
-    const draggedKey = input.stackingElement.key ?? input.stackingElement.id;
+    const draggedKey = getTimelineElementIdentity(input.stackingElement);
     const fromIndex = orderedSiblings.findIndex((sibling) => sibling.key === draggedKey);
     if (fromIndex >= 0 && orderedSiblings.length > 1) {
       const toIndex = clamp(fromIndex + deltaTrack, 0, orderedSiblings.length - 1);

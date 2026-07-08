@@ -49,12 +49,17 @@ function createPreviewIframe(
   return iframe;
 }
 
-function timelineElement(input: { id: string; track: number; zIndex: number }): TimelineElement {
+function timelineElement(input: {
+  id: string;
+  track: number;
+  zIndex: number;
+  tag?: string;
+}): TimelineElement {
   return {
     id: input.id,
     domId: input.id,
     hfId: `hf-${input.id}`,
-    tag: "div",
+    tag: input.tag ?? "div",
     start: 0,
     duration: 2,
     track: input.track,
@@ -231,6 +236,29 @@ describe("useTimelineEditing timeline z-index reorder", () => {
       ["middle", 1],
     ]);
     expect(doc.getElementById("back")?.getAttribute("data-track-index")).toBe("2");
+
+    unmount();
+  });
+
+  it("never writes z-index when the dragged clip is audio (no visual layer)", async () => {
+    const iframe = createPreviewIframe([
+      { id: "front", track: 0 },
+      { id: "music", track: 1 },
+    ]);
+    const front = timelineElement({ id: "front", track: 0, zIndex: 0 });
+    const music = timelineElement({ id: "music", track: 1, zIndex: 0, tag: "audio" });
+    const commit = vi.fn<(entries: ZIndexEntry[]) => void>();
+    const { move, unmount } = renderTimelineEditingHook({
+      timelineElements: [front, music],
+      iframe,
+      onZIndexCommit: commit,
+    });
+
+    await act(async () => {
+      await move(music, { start: music.start, track: front.track });
+    });
+
+    expect(commit).not.toHaveBeenCalled();
 
     unmount();
   });

@@ -6,6 +6,7 @@ import {
   type TimelineStackingReorderIntent,
 } from "../player/components/timelineEditing";
 import { computeReorderZValues, getElementZIndex } from "../player/lib/layerOrdering";
+import { getTimelineElementIdentity } from "../player/lib/timelineElementHelpers";
 import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
 import { selectedKeyframePercentagesForElement } from "../utils/keyframeSelection";
 import type { EditHistoryKind } from "../utils/editHistory";
@@ -19,9 +20,10 @@ function isHTMLElement(element: Element | null): element is HTMLElement {
  * Resolve a timeline vertical move to a z-index stacking reorder and commit it
  * through the shared layers-panel reorder path. Reads live sibling z-index from
  * the preview DOM, remaps with the dup-preserving reorder math, and writes only
- * z-index (never data-track-index). No-op when the move isn't a reorder or the
- * live siblings can't be resolved. Extracted from StudioApp's timeline hook to
- * keep it under the studio 600-LOC cap.
+ * z-index (never data-track-index). No-op when the move isn't a reorder, the
+ * dragged clip is audio (no visual layer to restack), or the live siblings can't
+ * be resolved. Extracted from StudioApp's timeline hook to keep it under the
+ * studio 600-LOC cap.
  */
 export function applyTimelineStackingReorder(input: {
   element: TimelineElement;
@@ -31,8 +33,10 @@ export function applyTimelineStackingReorder(input: {
   iframe: HTMLIFrameElement | null;
   activeCompPath: string | null;
   commit: TimelineZIndexReorderCommit | null | undefined;
-  keyOf: (element: TimelineElement) => string;
 }): void {
+  // Audio has no visual stacking; a vertical drag on it must never write z-index.
+  if (input.element.tag === "audio") return;
+
   const intent =
     input.stackingReorder ??
     (input.targetTrack !== input.element.track
@@ -44,7 +48,9 @@ export function applyTimelineStackingReorder(input: {
       : null);
   if (intent == null || intent.fromIndex === intent.toIndex) return;
 
-  const siblingByKey = new Map(input.timelineElements.map((el) => [input.keyOf(el), el]));
+  const siblingByKey = new Map(
+    input.timelineElements.map((el) => [getTimelineElementIdentity(el), el]),
+  );
   const orderedSiblings = intent.siblingKeys
     .map((key) => siblingByKey.get(key) ?? null)
     .filter((sibling): sibling is TimelineElement => sibling != null);

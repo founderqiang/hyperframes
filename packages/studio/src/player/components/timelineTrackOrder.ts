@@ -1,39 +1,23 @@
 import { type TimelineElement } from "../store/playerStore";
-import {
-  resolveContextOrder,
-  resolveStackingContextKey,
-  type ContextOrderItem,
-} from "../lib/layerOrdering";
+import { resolveContextOrder, resolveStackingContextKey } from "../lib/layerOrdering";
+import { getTimelineElementIdentity } from "../lib/timelineElementHelpers";
+import { toStackingOrderItem, type TimelineStackingOrderItem } from "./timelineEditing";
 
 /**
  * Pure timeline track-ordering logic. Timeline rows are ordered by scoped
  * stacking (z-index per stacking context, top = front), with data-track-index
  * used only to split time-overlapping clips of equal rank onto separate rows.
  * Extracted from Timeline.tsx to keep the component under the studio 600-LOC cap.
+ *
+ * Key derivation and stacking-descriptor mapping are owned by timelineEditing so
+ * the row order here and the reorder intent there interpret every element the
+ * same way.
  */
 
-interface TimelineTrackOrderItem extends ContextOrderItem {
-  key: string;
-  track: number;
-  start: number;
-  duration: number;
-}
-
-function getTimelineElementKey(element: TimelineElement): string {
-  return element.key ?? element.id;
-}
+type TimelineTrackOrderItem = TimelineStackingOrderItem & { start: number; duration: number };
 
 function toTimelineTrackOrderItem(element: TimelineElement): TimelineTrackOrderItem {
-  return {
-    key: getTimelineElementKey(element),
-    track: element.track,
-    start: element.start,
-    duration: element.duration,
-    zIndex: element.zIndex ?? 0,
-    stackingContextId: element.stackingContextId ?? null,
-    parentCompositionId: element.parentCompositionId ?? null,
-    compositionAncestors: element.compositionAncestors ?? [],
-  };
+  return { ...toStackingOrderItem(element), start: element.start, duration: element.duration };
 }
 
 function timelineElementsOverlap(
@@ -51,7 +35,7 @@ function trackFrontOrderIndex(
   for (const element of elements) {
     orderIndex = Math.min(
       orderIndex,
-      orderIndexByKey.get(getTimelineElementKey(element)) ?? Number.POSITIVE_INFINITY,
+      orderIndexByKey.get(getTimelineElementIdentity(element)) ?? Number.POSITIVE_INFINITY,
     );
   }
   return orderIndex;

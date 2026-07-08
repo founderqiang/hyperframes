@@ -140,7 +140,6 @@ export function useTimelineEditing({
         iframe: previewIframeRef.current,
         activeCompPath,
         commit: handleDomZIndexReorderCommitRef?.current,
-        keyOf: (el) => el.key ?? el.id,
       });
 
       if (!startChanged) return;
