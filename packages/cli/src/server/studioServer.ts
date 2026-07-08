@@ -179,7 +179,7 @@ async function getThumbnailBrowser(): Promise<import("puppeteer-core").Browser |
       const { acquireBrowser, buildChromeArgs } = await import("@hyperframes/engine");
 
       try {
-        const b = await ensureBrowser();
+        const b = await ensureBrowser({ preferManagedChrome: true });
         if (b.executablePath && !process.env.PRODUCER_HEADLESS_SHELL_PATH) {
           process.env.PRODUCER_HEADLESS_SHELL_PATH = b.executablePath;
         }
@@ -394,7 +394,7 @@ export function createStudioServer(options: StudioServerOptions): StudioServer {
           const { ensureBrowser } = await import("../browser/manager.js");
 
           try {
-            const browser = await ensureBrowser();
+            const browser = await ensureBrowser({ preferManagedChrome: true });
             if (browser.executablePath && !process.env.PRODUCER_HEADLESS_SHELL_PATH) {
               process.env.PRODUCER_HEADLESS_SHELL_PATH = browser.executablePath;
             }

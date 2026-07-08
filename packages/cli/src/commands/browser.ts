@@ -63,23 +63,37 @@ async function runEnsure(options?: { force?: boolean }): Promise<void> {
 
   const s = clack.spinner();
   if (!options?.force) {
+    // Resolve with `preferManagedChrome` so this reports what `render`
+    // actually uses — a system Chrome without our pinned HF cache still
+    // downloads on the next render, so it shouldn't be reported as "found".
     s.start("Looking for an existing browser...");
 
-    const existing = await findBrowser();
-    if (existing) {
-      s.stop(c.success("Browser found"));
-      console.log();
-      console.log(`   ${c.dim("Source:")}  ${c.bold(existing.source)}`);
-      console.log(`   ${c.dim("Path:")}    ${c.bold(existing.executablePath)}`);
-      console.log();
-      clack.outro(c.success("Ready to render."));
-      return;
-    }
+    let lastPct = -1;
+    const existing = await ensureBrowser({
+      preferManagedChrome: true,
+      onProgress: (downloaded, total) => {
+        if (total <= 0) return;
+        const pct = Math.floor((downloaded / total) * 100);
+        if (pct > lastPct) {
+          lastPct = pct;
+          s.message(
+            `Downloading Chrome Headless Shell ${c.dim("v" + CHROME_VERSION)} — ${c.progress(pct + "%")} ${c.dim("(" + formatBytes(downloaded) + " / " + formatBytes(total) + ")")}`,
+          );
+        }
+      },
+    });
 
-    s.stop("No browser found — downloading");
-  } else {
-    s.start("Purging cached download and re-downloading...");
+    if (existing.source === "download") trackBrowserInstall();
+    s.stop(c.success(existing.source === "download" ? "Download complete" : "Browser found"));
+    console.log();
+    console.log(`   ${c.dim("Source:")}  ${c.bold(existing.source)}`);
+    console.log(`   ${c.dim("Path:")}    ${c.bold(existing.executablePath)}`);
+    console.log();
+    clack.outro(c.success("Ready to render."));
+    return;
   }
+
+  s.start("Purging cached download and re-downloading...");
 
   const downloadSpinner = clack.spinner();
   downloadSpinner.start(`Downloading Chrome Headless Shell ${c.dim("v" + CHROME_VERSION)}...`);

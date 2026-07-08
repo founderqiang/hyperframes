@@ -247,10 +247,12 @@ async function findFromCache(): Promise<CacheLookupResult> {
   // engine an older binary than the engine itself would pick.
   //
   // We intentionally check puppeteer BEFORE the hyperframes-managed cache:
-  // the HF cache is pinned to `CHROME_VERSION` (above) which lags behind
-  // upstream Chrome by many releases. If a user installed chrome-headless-shell
-  // separately (via `@puppeteer/browsers install`) we want to use that
-  // newer binary, not the pinned-stale fallback.
+  // this is the non-`preferManagedChrome` path, which exists so a user who
+  // installed chrome-headless-shell separately (via `@puppeteer/browsers
+  // install`) keeps using that binary instead of being silently switched to
+  // the HF-pinned one. Note `CHROME_VERSION` (above) is a Dev-channel pin
+  // that may be NEWER than a user's puppeteer-cache Stable build — this is
+  // about respecting an explicit prior choice, not "newest wins".
   const fromPuppeteer = findFromPuppeteerCache();
   if (fromPuppeteer) {
     return { result: fromPuppeteer };

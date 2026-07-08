@@ -549,8 +549,8 @@ async function initDrawElementOrTransparentBackground(
       console.log(
         `[engine] fast capture: falling back to ${session.launchCaptureMode} capture — ` +
           "this Chrome build does not implement canvas.drawElementImage (Dev/Canary-only " +
-          "feature, ~151+); run `hyperframes doctor` or set HYPERFRAMES_BROWSER_PATH to a " +
-          "build that supports it.",
+          "feature, ~151+); run `hyperframes browser ensure --force` to fetch a supported " +
+          "build, or set HYPERFRAMES_BROWSER_PATH to one.",
       );
       await routeToFallback();
       return;
