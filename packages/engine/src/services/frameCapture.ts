@@ -1983,6 +1983,8 @@ export async function computeStaticFrameSet(
     };
     const intervals: Array<{ start: number; end: number }> = [];
     let tweenCount = 0;
+    // totalDuration() (NOT duration()): a repeat/yoyo tween animates past one iteration;
+    // a repeating timeline is marked opaque over its whole span (conservative).
     // A GSAP tl.call() is a zero-duration tween whose vars wire the callback as
     // onComplete (and onReverseComplete, fired on backward crossing — GSAP has
     // no separate "undo" callback, so both directions invoke the SAME forward
@@ -2003,8 +2005,18 @@ export async function computeStaticFrameSet(
         const single = typeof child.duration === "function" ? child.duration() : 0;
         const total = typeof child.totalDuration === "function" ? child.totalDuration() : single;
         if (typeof child.getChildren === "function") {
-          if (total > single + 1e-6) intervals.push({ start, end: start + total });
-          else walk(child, start);
+          if (total > single + 1e-6) {
+            intervals.push({ start, end: start + total });
+            // Still descend for hasTimelineCall even though the repeating
+            // span is already opaque (its frames are excluded from dedup
+            // regardless): a call() inside it is a review-flagged detection
+            // gap otherwise — the arm-time verifier can still forward-seek
+            // through this span while checking a LATER static run, firing
+            // the call() and corrupting the page (review).
+            walk(child, start);
+          } else {
+            walk(child, start);
+          }
         } else {
           tweenCount++;
           intervals.push({ start, end: start + total });
