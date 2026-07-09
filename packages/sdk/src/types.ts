@@ -461,6 +461,8 @@ export interface Composition {
 
   // ── Query API (F1) ─────────────────────────────────────────────────────────
   getElements(): ElementSnapshot[];
+  /** Top-level elements only, each carrying its full subtree — no id appears twice. */
+  getRootElements(): ElementSnapshot[];
   getElement(id: HfId): ElementSnapshot | null;
   find(query: FindQuery): string[];
   /**
@@ -498,7 +500,8 @@ export interface Composition {
   on(event: "persist:error", handler: (event: PersistErrorEvent) => void): () => void;
 
   // ── Serialization ──────────────────────────────────────────────────────────
-  serialize(): string;
+  /** stripRuntime removes an embedded preview-runtime script — for a host driving its own clock. */
+  serialize(opts?: { stripRuntime?: boolean }): string;
 
   // ── T3 embedded-mode extras ────────────────────────────────────────────────
   /** Current override-set — serialize for host storage */

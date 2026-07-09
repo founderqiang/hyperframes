@@ -135,6 +135,20 @@ export function resolveScoped(document: Document, id: string): Element | null {
 }
 
 /**
+ * Bare leaf id from a scoped hf-id ("hf-HOST/hf-LEAF" → "hf-LEAF"; a bare id
+ * passes through unchanged). The live DOM's `data-hf-id` attribute never
+ * carries the host-chain prefix, so a consumer holding a scopedId (from
+ * getElements()/getElement()) needs this to query the rendered DOM directly.
+ */
+export function bareId(scopedId: string): string {
+  const parts = scopedId.split("/");
+  // split() always returns >=1 element, so this never actually falls through at
+  // runtime — the fallback exists to satisfy noUncheckedIndexedAccess, not as a
+  // reachable safety net.
+  return parts[parts.length - 1] ?? scopedId;
+}
+
+/**
  * Returns true when this element starts a new sub-composition scope — i.e. it
  * is a host element (has data-composition-file) and is NOT the outerHTML
  * innerRoot of the SAME sub-composition (same dcf value as parent).

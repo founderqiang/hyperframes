@@ -95,6 +95,18 @@
       "import": "./src/runtime/clipTree.ts",
       "types": "./src/runtime/clipTree.ts"
     },
+    "./runtime/start-expression": {
+      "bun": "./src/runtime/startExpression.ts",
+      "node": "./dist/runtime/startExpression.js",
+      "import": "./src/runtime/startExpression.ts",
+      "types": "./src/runtime/startExpression.ts"
+    },
+    "./compiler/html-document": {
+      "bun": "./src/compiler/htmlDocument.ts",
+      "node": "./dist/compiler/htmlDocument.js",
+      "import": "./src/compiler/htmlDocument.ts",
+      "types": "./src/compiler/htmlDocument.ts"
+    },
     "./runtime/position-edits": {
       "bun": "./src/runtime/positionEdits.ts",
       "node": "./dist/runtime/positionEdits.js",
@@ -274,6 +286,14 @@
       "./runtime/clipTree": {
         "import": "./dist/runtime/clipTree.js",
         "types": "./dist/runtime/clipTree.d.ts"
+      },
+      "./runtime/start-expression": {
+        "import": "./dist/runtime/startExpression.js",
+        "types": "./dist/runtime/startExpression.d.ts"
+      },
+      "./compiler/html-document": {
+        "import": "./dist/compiler/htmlDocument.js",
+        "types": "./dist/compiler/htmlDocument.d.ts"
       },
       "./runtime/position-edits": {
         "import": "./dist/runtime/positionEdits.js",

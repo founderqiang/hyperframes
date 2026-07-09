@@ -26,6 +26,8 @@ export { UnsupportedOpError } from "./engine/mutate.js";
 
 export { buildDocument, buildRoots, flatElements } from "./document.js";
 
+export { isNewHostBoundary, bareId } from "./engine/model.js";
+
 export { openComposition } from "./session.js";
 export type { OpenCompositionOptions } from "./session.js";
 

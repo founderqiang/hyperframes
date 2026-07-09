@@ -158,6 +158,7 @@ export {
   type SubCompositionValidity,
   type SubCompositionValidityReason,
 } from "./compiler/subCompositionValidity";
+export { RUNTIME_BOOTSTRAP_ATTR, stripEmbeddedRuntimeScripts } from "./compiler/htmlDocument";
 export { queryByAttr } from "./utils/cssSelector";
 export { decodeUrlPathVariants } from "./utils/urlPath";
 export { parseAnimatedGifMetadata, type AnimatedGifMetadata } from "./media/gif";
