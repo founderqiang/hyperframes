@@ -57,6 +57,7 @@ function renderMarqueeHarness(layers: StackingTimelineLayer[]) {
   const layerOrder = layers.map((item) => item.id);
   const setShowPopover = () => {};
   const setRangeSelection = () => {};
+  const seekedX: number[] = [];
 
   function Harness() {
     const scrollRef = React.useRef<HTMLDivElement | null>(null);
@@ -67,6 +68,7 @@ function renderMarqueeHarness(layers: StackingTimelineLayer[]) {
       timelineLayersRef: { current: layers },
       setShowPopover,
       setRangeSelectionRef: { current: setRangeSelection },
+      seekFromX: (clientX: number) => seekedX.push(clientX),
     });
     return (
       <div
@@ -115,6 +117,7 @@ function renderMarqueeHarness(layers: StackingTimelineLayer[]) {
     host,
     scroll,
     root,
+    seekedX,
     clip: host.querySelector<HTMLElement>("[data-clip]")!,
     unmount() {
       act(() => root.unmount());
@@ -152,7 +155,7 @@ describe("useTimelineMarqueeSelection", () => {
     harness.unmount();
   });
 
-  it("treats a sub-threshold empty-lane drag as a clear click", () => {
+  it("treats a sub-threshold empty-lane drag as a clear click that also seeks", () => {
     usePlayerStore.getState().setSelection(["selected"]);
     const harness = renderMarqueeHarness([layer("lane-0", [element("selected", 0, 1, 0)])]);
 
@@ -162,6 +165,8 @@ describe("useTimelineMarqueeSelection", () => {
 
     expect(usePlayerStore.getState().selectedElementIds.size).toBe(0);
     expect(harness.host.querySelector("[data-marquee]")).toBeNull();
+    // A sub-threshold press still scrubs the playhead to the click, like a plain lane click.
+    expect(harness.seekedX).toEqual([GUTTER + 20]);
     harness.unmount();
   });
 

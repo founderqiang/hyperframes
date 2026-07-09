@@ -44,6 +44,8 @@ interface UseTimelineMarqueeSelectionInput {
   disabled?: boolean;
   setShowPopover: (show: boolean) => void;
   setRangeSelectionRef: RefObject<((sel: null) => void) | null>;
+  /** Canonical playhead seek, used to keep empty-lane clicks scrubbing the playhead. */
+  seekFromX: (clientX: number) => void;
 }
 
 function getCanvasPoint(scroll: HTMLDivElement, clientX: number, clientY: number) {
@@ -89,6 +91,12 @@ function buildSelectionRect(
   const overlayRight = Math.max(overlayLeft, right);
   const overlayBottom = Math.max(overlayTop, bottom);
 
+  // Hit-test must use the SAME pixels-per-second the overlay is drawn at, or the
+  // selected time span diverges from the visible box at low zoom (pps < 1). Guard
+  // only against a non-finite/zero pps (would yield NaN/Infinity), never floor it.
+  const safePps = Number.isFinite(pps) && pps > 0 ? pps : 0;
+  const timeFromX = (x: number) => (safePps > 0 ? Math.max(0, (x - GUTTER) / safePps) : 0);
+
   return {
     overlay: {
       left: overlayLeft,
@@ -97,8 +105,8 @@ function buildSelectionRect(
       height: overlayBottom - overlayTop,
     },
     selection: {
-      startTime: Math.max(0, (left - GUTTER) / Math.max(pps, 1)),
-      endTime: Math.max(0, (right - GUTTER) / Math.max(pps, 1)),
+      startTime: timeFromX(left),
+      endTime: timeFromX(right),
       top,
       bottom,
     },
@@ -113,6 +121,7 @@ export function useTimelineMarqueeSelection({
   disabled = false,
   setShowPopover,
   setRangeSelectionRef,
+  seekFromX,
 }: UseTimelineMarqueeSelectionInput) {
   const activeRef = useRef<ActiveMarqueeGesture | null>(null);
   const pointerRef = useRef<{ clientX: number; clientY: number } | null>(null);
@@ -231,7 +240,11 @@ export function useTimelineMarqueeSelection({
       setMarqueeRect(null);
 
       if (!active.started) {
+        // A press that never crossed the marquee threshold is a plain empty-lane
+        // click: clear the selection AND scrub the playhead, matching the seek that
+        // the range/playhead handler would have run had the marquee not claimed it.
         usePlayerStore.getState().clearSelection();
+        seekFromX(active.anchorClientX);
         return true;
       }
 
@@ -249,7 +262,7 @@ export function useTimelineMarqueeSelection({
       usePlayerStore.getState().setSelection(selectedIds);
       return true;
     },
-    [ppsRef, scrollRef, stopAutoScroll, timelineLayersRef, trackOrderRef],
+    [ppsRef, scrollRef, seekFromX, stopAutoScroll, timelineLayersRef, trackOrderRef],
   );
 
   useEffect(() => stopAutoScroll, [stopAutoScroll]);

@@ -367,8 +367,14 @@ export const Timeline = memo(function Timeline({
     disabled: activeTool === "razor",
     setShowPopover,
     setRangeSelectionRef,
+    seekFromX,
   });
   setRangeSelectionRef.current = setRangeSelection;
+  // Pointer-up and lost-capture end a gesture identically (marquee-claims-first).
+  const releasePointer = (event: Parameters<typeof handleMarqueePointerUp>[0]) => {
+    if (handleMarqueePointerUp(event)) return;
+    handlePointerUp();
+  };
 
   const prevSelectedRef = useRef(selectedElementRef.current);
   // eslint-disable-next-line no-restricted-syntax, react-hooks/exhaustive-deps
@@ -472,14 +478,8 @@ export const Timeline = memo(function Timeline({
           if (handleMarqueePointerMove(e)) return;
           handlePointerMove(e);
         }}
-        onPointerUp={(e) => {
-          if (handleMarqueePointerUp(e)) return;
-          handlePointerUp();
-        }}
-        onLostPointerCapture={(e) => {
-          if (handleMarqueePointerUp(e)) return;
-          handlePointerUp();
-        }}
+        onPointerUp={releasePointer}
+        onLostPointerCapture={releasePointer}
       >
         <TimelineCanvas
           major={major}

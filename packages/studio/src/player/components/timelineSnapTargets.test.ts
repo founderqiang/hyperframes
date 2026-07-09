@@ -34,7 +34,7 @@ describe("buildTimelineSnapTargets", () => {
 
     const targets = buildTimelineSnapTargets({
       elements: [dragged, other],
-      draggedKey: "dragged-key",
+      excludedKeys: new Set(["dragged-key"]),
       playhead: 8,
       compDuration: 10,
       beats: [1.5],
@@ -47,13 +47,36 @@ describe("buildTimelineSnapTargets", () => {
     expect(times).toContain(6);
   });
 
+  it("excludes every moving group member, not just the grabbed clip", () => {
+    const a = timelineElement({ id: "a", start: 1, duration: 1 });
+    const b = timelineElement({ id: "b", start: 3, duration: 1 });
+    const other = timelineElement({ id: "other", start: 6, duration: 1 });
+
+    const targets = buildTimelineSnapTargets({
+      elements: [a, b, other],
+      excludedKeys: new Set(["a", "b"]),
+      playhead: 9,
+      compDuration: 10,
+      beats: [],
+    });
+
+    const times = targets.map((target) => target.time);
+    // Both group members' edges are excluded; the non-member's edges remain.
+    expect(times).not.toContain(1);
+    expect(times).not.toContain(2);
+    expect(times).not.toContain(3);
+    expect(times).not.toContain(4);
+    expect(times).toContain(6);
+    expect(times).toContain(7);
+  });
+
   it("dedupes near-equal times from different sources", () => {
     const dragged = timelineElement({ id: "dragged", start: 2, duration: 2 });
     const other = timelineElement({ id: "other", start: 0.0004, duration: 10 });
 
     const targets = buildTimelineSnapTargets({
       elements: [dragged, other],
-      draggedKey: "dragged",
+      excludedKeys: new Set(["dragged"]),
       playhead: 5,
       compDuration: 10,
       beats: [0.0002, 10.0002],

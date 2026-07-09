@@ -99,17 +99,20 @@ export function useTimelineGroupEditing({
     (label: string, operation: (projectId: string) => Promise<void>): Promise<void> => {
       if (isRecordingRef?.current) {
         showToast("Cannot edit timeline while recording", "error");
-        return Promise.resolve();
+        return Promise.reject(new Error(`${label}: blocked while recording`));
       }
       const projectId = projectIdRef.current;
-      if (!projectId) return Promise.resolve();
-      const queued = editQueueRef.current
-        .then(() => operation(projectId))
-        .catch((error) => {
+      if (!projectId) return Promise.reject(new Error(`${label}: no active project`));
+      const run = editQueueRef.current.then(() => operation(projectId));
+      // Keep the shared edit queue from wedging on a rejection, but return the raw
+      // (rejecting) promise so the gesture owner can roll back on a real failure.
+      editQueueRef.current = run.then(
+        () => undefined,
+        (error) => {
           console.error(`[Timeline] Failed to persist: ${label}`, error);
-        });
-      editQueueRef.current = queued;
-      return queued;
+        },
+      );
+      return run;
     },
     [editQueueRef, isRecordingRef, projectIdRef, showToast],
   );

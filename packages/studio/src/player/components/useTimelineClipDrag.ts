@@ -154,14 +154,21 @@ export function useTimelineClipDrag({
   compositionDurationRef.current = compositionDuration;
 
   const buildSnapTargets = useCallback(
-    (element: TimelineElement) =>
-      buildTimelineSnapTargets({
+    (element: TimelineElement) => {
+      const draggedKey = element.key ?? element.id;
+      const selected = selectedElementIdsRef.current;
+      // In a group drag every selected clip moves together, so none of them may act
+      // as a snap target for the others; exclude the whole set, not just the grabbed clip.
+      const excludedKeys =
+        selected.size > 1 && selected.has(draggedKey) ? selected : new Set([draggedKey]);
+      return buildTimelineSnapTargets({
         elements: timelineElementsRef.current,
-        draggedKey: element.key ?? element.id,
+        excludedKeys,
         playhead: playheadRef.current,
         compDuration: compositionDurationRef.current,
         beats: isMusicTrack(element) ? EMPTY_BEAT_TIMES : beatTimesRef.current,
-      }),
+      });
+    },
     [timelineElementsRef],
   );
 

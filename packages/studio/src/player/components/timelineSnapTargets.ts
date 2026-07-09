@@ -43,7 +43,8 @@ function addTarget(targets: TimelineSnapTarget[], candidate: TimelineSnapTarget)
 
 export function buildTimelineSnapTargets(input: {
   elements: TimelineElement[];
-  draggedKey: string;
+  /** Keys of every clip moving in this gesture (the whole group), excluded as targets. */
+  excludedKeys: ReadonlySet<string>;
   playhead: number;
   compDuration: number;
   beats: number[];
@@ -56,7 +57,7 @@ export function buildTimelineSnapTargets(input: {
 
   for (const element of input.elements) {
     const elementKey = element.key ?? element.id;
-    if (elementKey === input.draggedKey || element.id === input.draggedKey) continue;
+    if (input.excludedKeys.has(elementKey) || input.excludedKeys.has(element.id)) continue;
     addTarget(targets, { time: element.start, kind: "edge" });
     addTarget(targets, { time: element.start + element.duration, kind: "edge" });
   }

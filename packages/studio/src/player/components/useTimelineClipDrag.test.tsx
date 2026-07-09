@@ -22,6 +22,7 @@ function timelineElement(input: {
   sourceDuration?: number;
   playbackStart?: number;
   playbackRate?: number;
+  timelineLocked?: boolean;
 }): TimelineElement {
   return {
     id: input.id,
@@ -39,6 +40,7 @@ function timelineElement(input: {
     compositionAncestors: ["root"],
     sourceFile: "index.html",
     timingSource: "authored",
+    timelineLocked: input.timelineLocked,
   };
 }
 
@@ -261,6 +263,38 @@ describe("useTimelineClipDrag", () => {
       outside,
       expect.objectContaining({ start: 9 }),
     );
+
+    harness.unmount();
+  });
+
+  it("does not form a group when a selected member is locked (grabbed clip moves alone)", async () => {
+    const first = timelineElement({ id: "first", track: 0, zIndex: 1, start: 1, duration: 2 });
+    const locked = timelineElement({
+      id: "locked",
+      track: 1,
+      zIndex: 1,
+      start: 4,
+      duration: 2,
+      timelineLocked: true,
+    });
+    const harness = renderDragHarness([first, locked]);
+    act(() => {
+      usePlayerStore.getState().setSelection(["first", "locked"], "first");
+    });
+
+    harness.startDrag(first, 0);
+    harness.movePointer(200, 0);
+    await harness.dropPointer();
+
+    // The locked member forbids the op, so no group forms: the grabbed clip moves
+    // alone (single-clip path) and the locked clip is never touched.
+    expect(harness.onMoveElements).not.toHaveBeenCalled();
+    expect(harness.onMoveElement).toHaveBeenCalledTimes(1);
+    expect(harness.onMoveElement).toHaveBeenCalledWith(
+      first,
+      expect.objectContaining({ start: 3 }),
+    );
+    expect(harness.storeElements().find((el) => el.id === "locked")?.start).toBe(4);
 
     harness.unmount();
   });

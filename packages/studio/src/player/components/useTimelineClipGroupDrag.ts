@@ -5,6 +5,7 @@ import type {
 } from "../../hooks/useTimelineGroupEditing";
 import type { TimelineElement } from "../store/playerStore";
 import {
+  getTimelineEditCapabilities,
   resolveTimelineGroupMove,
   resolveTimelineGroupResize,
   type TimelineGroupResizeEdge,
@@ -81,14 +82,20 @@ function selectedMembers(
   selectedElementIdsInput: Set<string>,
   timelineElements: readonly TimelineElement[],
   mapMember: (element: TimelineElement) => GroupTimingMember,
+  canEdit: (element: TimelineElement) => boolean,
 ): GroupTimingMember[] | null {
   const selectedElementIds = selectedElementSet(selectedElementIdsInput);
   const grabbedKey = elementKey(grabbedElement);
   if (selectedElementIds.size <= 1 || !selectedElementIds.has(grabbedKey)) return null;
 
-  const members = timelineElements
-    .filter((element) => selectedElementIds.has(elementKey(element)))
-    .map(mapMember);
+  const elements = timelineElements.filter((element) =>
+    selectedElementIds.has(elementKey(element)),
+  );
+  // A group edit must not touch a member that individually forbids this operation
+  // (e.g. a locked or implicitly-timed clip). If any member can't take it, don't form
+  // a group; the gesture degrades to a normal single-clip edit of the grabbed clip.
+  if (!elements.every(canEdit)) return null;
+  const members = elements.map(mapMember);
   return members.length > 1 ? members : null;
 }
 
@@ -122,7 +129,13 @@ function createMoveSession(
   selectedElementIds: Set<string>,
   timelineElements: readonly TimelineElement[],
 ): MoveSession | null {
-  const members = selectedMembers(element, selectedElementIds, timelineElements, moveMember);
+  const members = selectedMembers(
+    element,
+    selectedElementIds,
+    timelineElements,
+    moveMember,
+    (candidate) => getTimelineEditCapabilities(candidate).canMove,
+  );
   if (!members) return null;
   return {
     grabbedKey: elementKey(element),
@@ -138,8 +151,15 @@ function createResizeSession(
   timelineElements: readonly TimelineElement[],
   edge: TimelineGroupResizeEdge,
 ): ResizeSession | null {
-  const members = selectedMembers(element, selectedElementIds, timelineElements, (member) =>
-    resizeMember(edge, member),
+  const members = selectedMembers(
+    element,
+    selectedElementIds,
+    timelineElements,
+    (member) => resizeMember(edge, member),
+    (candidate) => {
+      const caps = getTimelineEditCapabilities(candidate);
+      return edge === "start" ? caps.canTrimStart : caps.canTrimEnd;
+    },
   );
   if (!members) return null;
   return {
