@@ -195,34 +195,40 @@ export async function runAssetImportMany(
     reuseExisting(fileKey, r.nodeId, opts, version, deps, description, entity),
   );
   const missIndexes = slots.flatMap((s, i) => (s === null ? [i] : []));
-  if (missIndexes.length > 0) {
-    const missNodeIds = missIndexes.map((i) => refs[i]!.nodeId);
-    const rendered = await deps.client.renderNodes(fileKey, missNodeIds, opts);
-    const byNode = new Map(rendered.map((r) => [r.nodeId, r] as const));
-    for (const i of missIndexes) {
-      const nodeId = refs[i]!.nodeId;
-      const r = byNode.get(nodeId);
-      // Keep the typed code: component import's rasterize fallback skips on
-      // RENDER_FAILED, so a plain Error here would abort the whole import.
-      if (!r || r.url === null)
-        throw new FigmaClientError(
-          "RENDER_FAILED",
-          `figma could not render node ${nodeId} as ${opts.format}`,
+  try {
+    if (missIndexes.length > 0) {
+      const missNodeIds = missIndexes.map((i) => refs[i]!.nodeId);
+      const rendered = await deps.client.renderNodes(fileKey, missNodeIds, opts);
+      const byNode = new Map(rendered.map((r) => [r.nodeId, r] as const));
+      for (const i of missIndexes) {
+        const nodeId = refs[i]!.nodeId;
+        const r = byNode.get(nodeId);
+        // Keep the typed code: component import's rasterize fallback skips on
+        // RENDER_FAILED, so a plain Error here would abort the whole import.
+        if (!r || r.url === null)
+          throw new FigmaClientError(
+            "RENDER_FAILED",
+            `figma could not render node ${nodeId} as ${opts.format}`,
+          );
+        slots[i] = await freezeAndRecord(
+          fileKey,
+          nodeId,
+          r.url,
+          r.ext,
+          opts,
+          version,
+          deps,
+          description,
+          entity,
         );
-      slots[i] = await freezeAndRecord(
-        fileKey,
-        nodeId,
-        r.url,
-        r.ext,
-        opts,
-        version,
-        deps,
-        description,
-        entity,
-      );
+      }
     }
+  } finally {
+    // Regenerate once — in `finally` so a mid-batch RENDER_FAILED still leaves
+    // index.md consistent with the nodes that DID freeze, not stale until the
+    // next import.
+    safeRegenerateIndex(deps.projectDir);
   }
-  safeRegenerateIndex(deps.projectDir);
   return slots.map((s, i) => {
     if (!s) throw new Error(`figma asset import produced no result for "${refInputs[i]}"`);
     return s;
@@ -304,7 +310,14 @@ export default defineCommand({
         console.log(`${verb} ${result.record.id} → ${result.record.path}`);
         console.log(result.snippet.html);
       }
-      if (results.length > 1) console.log(`(${results.length} nodes in 1 figma request)`);
+      if (results.length > 1) {
+        const rendered = results.filter((r) => !r.reused).length;
+        console.log(
+          rendered > 0
+            ? `(${results.length} nodes, ${rendered} rendered in 1 figma request)`
+            : `(${results.length} nodes, all reused from cache — no figma request)`,
+        );
+      }
       const { trackFigmaImport } = await import("../../telemetry/index.js");
       trackFigmaImport({
         phase: "asset",
