@@ -162,4 +162,38 @@ window.__timelines = { t: tl };</script>
 
     expect(() => comp.setStyle("hf-title", { color: "#0f0" })).not.toThrow();
   });
+
+  it("re-attaching detaches the previous subscription — old comp's edits stop mirroring", async () => {
+    const iframe = mountIframe(BASE_HTML);
+    const compA = await openComposition(BASE_HTML);
+    const compB = await openComposition(BASE_HTML);
+    const adapter = createIframePreviewAdapter(iframe);
+
+    adapter.attachSync(compA);
+    adapter.attachSync(compB); // should detach compA's subscription
+
+    compA.setStyle("hf-title", { color: "#f00" }); // must NOT mirror — stale subscription
+    compB.setStyle("hf-title", { fontSize: "10px" }); // must mirror — active subscription
+
+    const liveTitle = iframe.contentDocument!.querySelector(
+      '[data-hf-id="hf-title"]',
+    ) as HTMLElement;
+    expect(liveTitle.style.getPropertyValue("color")).not.toBe("#f00");
+    expect(liveTitle.style.getPropertyValue("font-size")).toBe("10px");
+  });
+
+  it("the returned unsubscribe function detaches the subscription", async () => {
+    const iframe = mountIframe(BASE_HTML);
+    const comp = await openComposition(BASE_HTML);
+    const adapter = createIframePreviewAdapter(iframe);
+    const detach = adapter.attachSync(comp);
+
+    detach();
+    comp.setStyle("hf-title", { color: "#f00" });
+
+    const liveTitle = iframe.contentDocument!.querySelector(
+      '[data-hf-id="hf-title"]',
+    ) as HTMLElement;
+    expect(liveTitle.style.getPropertyValue("color")).not.toBe("#f00");
+  });
 });
