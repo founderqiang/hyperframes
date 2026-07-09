@@ -156,11 +156,21 @@ export function applyPositionEditToElement(el: HTMLElement, opts?: { force?: boo
  */
 export function applyPositionEdits(doc: Document): number {
   const marked = doc.querySelectorAll(`[${EDIT_BASE_X_ATTR}], [${EDIT_BASE_Y_ATTR}]`);
+  // Not `instanceof HTMLElement`: `doc` is frequently an iframe's document (the
+  // SDK's edit preview, a host embedding a composition), and its elements are
+  // HTMLElement instances of THAT frame's realm — never this module's. A
+  // module-scope `instanceof HTMLElement` check silently no-ops on every element
+  // cross-realm. Use the document's own realm's constructor; duck-type on
+  // `.style` when defaultView is unavailable (a detached/synthetic document).
+  const RealmHTMLElement = doc.defaultView?.HTMLElement;
   let applied = 0;
   for (let i = 0; i < marked.length; i++) {
     const el = marked[i];
-    if (!(el instanceof HTMLElement)) continue;
-    applyPositionEditToElement(el);
+    const isStylable = RealmHTMLElement
+      ? el instanceof RealmHTMLElement
+      : typeof (el as HTMLElement).style?.setProperty === "function";
+    if (!isStylable) continue;
+    applyPositionEditToElement(el as HTMLElement);
     applied += 1;
   }
   return applied;

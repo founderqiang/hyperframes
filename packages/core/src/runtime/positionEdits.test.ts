@@ -115,6 +115,32 @@ describe("applyPositionEdits", () => {
     b.remove();
   });
 
+  it("applies edits to elements from a DIFFERENT realm (an iframe's document)", () => {
+    // Regression test: a module-scope `instanceof HTMLElement` check fails for
+    // elements from another window's realm even though they're genuine,
+    // stylable HTMLElements — exactly the case for any iframe-hosted editor
+    // (the SDK's edit preview, a host embedding a composition).
+    const iframe = document.createElement("iframe");
+    document.body.appendChild(iframe);
+    const iframeDoc = iframe.contentDocument;
+    if (!iframeDoc) throw new Error("iframe.contentDocument unavailable in this test env");
+
+    // Sanity check the premise: the iframe's HTMLElement is NOT this realm's.
+    const iframeWindow = iframe.contentWindow as (Window & typeof globalThis) | null;
+    expect(iframeWindow?.HTMLElement).not.toBe(globalThis.HTMLElement);
+
+    const el = iframeDoc.createElement("div");
+    el.setAttribute("data-x", "50");
+    el.setAttribute("data-y", "-10");
+    el.setAttribute(EDIT_BASE_X_ATTR, "0");
+    el.setAttribute(EDIT_BASE_Y_ATTR, "0");
+    iframeDoc.body.appendChild(el);
+
+    expect(applyPositionEdits(iframeDoc)).toBe(1);
+    expect(el.style.getPropertyValue("translate")).toBe("50px -10px");
+    iframe.remove();
+  });
+
   it("skips re-apply when the written translate was consumed externally (GSAP fold)", () => {
     const el = makeElement({
       "data-x": "10",
