@@ -269,7 +269,7 @@ async function runLayoutAudit(
   }
 }
 
-function loadBrowserScript(name: string): string {
+export function loadBrowserScript(name: string): string {
   const candidates = [join(__dirname, name), join(__dirname, "commands", name)];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return readFileSync(candidate, "utf-8");
@@ -408,7 +408,7 @@ function resolveMotionSpec(specPath: string, json: boolean): MotionSpec {
   process.exit(1);
 }
 
-function parseAt(value: unknown): number[] | undefined {
+export function parseAt(value: unknown): number[] | undefined {
   if (!value) return undefined;
   const times = String(value)
     .split(",")

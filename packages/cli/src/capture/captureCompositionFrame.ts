@@ -44,6 +44,12 @@ export interface SettledCompositionPage {
 export interface OpenSettledCompositionPageOptions {
   renderReadyTimeoutMs: number;
   renderReadyWarningSuffix: string;
+  // Screenshot paths take the engine's software-GPU default; validate/check
+  // thread the PRODUCER_BROWSER_GPU_MODE opt-in through here.
+  browserGpuMode?: "software" | "hardware";
+  // Runs after the page exists but before page.goto, so console/pageerror/
+  // request listeners can attach without missing load-time events.
+  beforeNavigate?: (page: Page) => void | Promise<void>;
 }
 
 export interface FfmpegRunResult {
@@ -132,11 +138,15 @@ export async function openSettledCompositionPage(
     chromeBrowser = await puppeteer.default.launch({
       headless: true,
       executablePath: browser.executablePath,
-      args: buildChromeArgs({ ...viewport, captureMode: "screenshot" }),
+      args: buildChromeArgs(
+        { ...viewport, captureMode: "screenshot" },
+        { browserGpuMode: options.browserGpuMode },
+      ),
     });
 
     const page = await chromeBrowser.newPage();
     await page.setViewport(viewport);
+    await options.beforeNavigate?.(page);
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 10000 });
     const renderReadyTimedOut = !(await waitForCompositionSettle(page, options));
     return { browser: chromeBrowser, page, renderReadyTimedOut };

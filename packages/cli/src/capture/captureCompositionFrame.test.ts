@@ -171,7 +171,12 @@ describe("screenshot Chrome arguments", () => {
     );
     const layoutSource = readFileSync(new URL("../commands/layout.ts", import.meta.url), "utf8");
 
-    expect(captureSource).toMatch(defaultScreenshotArgs);
+    // openSettledCompositionPage threads the caller's optional browserGpuMode;
+    // callers that omit it (snapshot, compare) fall through to the engine's
+    // software default for screenshot capture.
+    expect(captureSource).toMatch(
+      /args:\s*buildChromeArgs\(\s*\{[^}]*captureMode:\s*"screenshot"[^}]*\},\s*\{\s*browserGpuMode:\s*options\.browserGpuMode\s*\},?\s*\),/,
+    );
     expect(layoutSource).toMatch(defaultScreenshotArgs);
   });
 });

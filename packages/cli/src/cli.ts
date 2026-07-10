@@ -119,6 +119,7 @@ const commandLoaders = {
   publish: () => import("./commands/publish.js").then((m) => m.default),
   render: () => import("./commands/render.js").then((m) => m.default),
   lint: () => import("./commands/lint.js").then((m) => m.default),
+  check: () => import("./commands/check.js").then((m) => m.default),
   beats: () => import("./commands/beats.js").then((m) => m.default),
   inspect: () => import("./commands/inspect.js").then((m) => m.default),
   keyframes: () => import("./commands/keyframes.js").then((m) => m.default),
