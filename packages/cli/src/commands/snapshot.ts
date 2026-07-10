@@ -1,3 +1,4 @@
+import { failCommand } from "../utils/commandResult.js";
 // fallow-ignore-file complexity
 import { defineCommand } from "citty";
 import { existsSync, mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -666,7 +667,7 @@ export default defineCommand({
         console.log(
           `\n${c.error("✗")} Could not determine composition duration — no frames captured`,
         );
-        process.exit(1);
+        failCommand();
       }
 
       console.log(
@@ -789,7 +790,7 @@ export default defineCommand({
     } catch (err) {
       const msg = normalizeErrorMessage(err);
       console.error(`\n${c.error("✗")} Snapshot failed: ${msg}`);
-      process.exit(1);
+      failCommand();
     }
   },
 });

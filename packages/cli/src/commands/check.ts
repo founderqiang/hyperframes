@@ -3,6 +3,7 @@ import type { Example } from "./_examples.js";
 import { parseAt } from "./layout.js";
 import { c } from "../ui/colors.js";
 import { normalizeErrorMessage } from "../utils/errorMessage.js";
+import { setCommandExitCode } from "../utils/commandResult.js";
 import { formatLayoutIssue } from "../utils/layoutAudit.js";
 import { resolveProject, type ProjectDir } from "../utils/project.js";
 import { withMeta } from "../utils/updateCheck.js";
@@ -135,7 +136,7 @@ export function createCheckCommand(
         } else {
           printHumanReport(report);
         }
-        process.exitCode = checkExitCode(report);
+        setCommandExitCode(checkExitCode(report));
       } catch (error) {
         const message = normalizeErrorMessage(error);
         if (asJson) {
@@ -145,7 +146,7 @@ export function createCheckCommand(
         } else {
           console.error(`${c.error("✗")} Check failed: ${message}`);
         }
-        process.exitCode = 1;
+        setCommandExitCode(1);
       }
     },
   });

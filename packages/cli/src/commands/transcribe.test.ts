@@ -3,6 +3,7 @@ import { writeFileSync, readFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { WhisperUnavailableError } from "../whisper/manager.js";
+import { consumeCommandResult } from "../utils/commandResult.js";
 
 // Make the whisper core report "unavailable" so we exercise the soft-skip path.
 const transcribeMock = vi.fn();
@@ -26,12 +27,9 @@ function dummyAudio(): { dir: string; input: string } {
 
 describe("transcribe command", () => {
   let dirs: string[] = [];
-  let priorExitCode: typeof process.exitCode;
-
   beforeEach(() => {
     dirs = [];
-    priorExitCode = process.exitCode;
-    process.exitCode = undefined;
+    consumeCommandResult();
     transcribeMock.mockReset();
     trackTranscribeUnavailable.mockReset();
     trackCommandFailure.mockReset();
@@ -42,7 +40,7 @@ describe("transcribe command", () => {
   });
 
   afterEach(() => {
-    process.exitCode = priorExitCode;
+    consumeCommandResult();
     for (const d of dirs) rmSync(d, { recursive: true, force: true });
     vi.restoreAllMocks();
   });
@@ -52,7 +50,7 @@ describe("transcribe command", () => {
     dirs.push(dir);
     await transcribeCmd.run!({ args: { input, json: true, optional: false } } as never);
 
-    expect(process.exitCode).toBe(1);
+    expect(consumeCommandResult().exitCode).toBe(1);
     expect(trackTranscribeUnavailable).toHaveBeenCalledWith({ optional: false });
     expect(trackCommandFailure).not.toHaveBeenCalled();
   });
@@ -62,7 +60,7 @@ describe("transcribe command", () => {
     dirs.push(dir);
     await transcribeCmd.run!({ args: { input, json: true, optional: true } } as never);
 
-    expect(process.exitCode).toBe(0);
+    expect(consumeCommandResult().exitCode).toBe(0);
     expect(trackTranscribeUnavailable).toHaveBeenCalledWith({ optional: true });
     expect(trackCommandFailure).not.toHaveBeenCalled();
   });

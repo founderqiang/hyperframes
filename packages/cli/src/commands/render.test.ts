@@ -677,13 +677,10 @@ describe("renderLocal browser GPU config", () => {
     expect(producerState.createdJobs[0]?.outputResolution).toBeUndefined();
   });
 
-  it("can force the CLI process to exit after a successful local render", async () => {
+  it("requests a root-owned CLI exit after a successful local render", async () => {
     vi.useFakeTimers();
-    const exit = vi
-      .spyOn(process, "exit")
-      .mockImplementation((code?: string | number | null): never => {
-        throw new Error(`process.exit:${code ?? ""}`);
-      });
+    const { consumeCommandResult } = await import("../utils/commandResult.js");
+    consumeCommandResult();
 
     await renderLocal("/tmp/project", "/tmp/out.mp4", {
       fps: { num: 30, den: 1 },
@@ -696,9 +693,8 @@ describe("renderLocal browser GPU config", () => {
       exitAfterComplete: true,
     });
 
-    expect(exit).not.toHaveBeenCalled();
-    expect(() => vi.advanceTimersByTime(100)).toThrow("process.exit:0");
-    expect(exit).toHaveBeenCalledWith(0);
+    vi.advanceTimersByTime(100);
+    expect(consumeCommandResult().exitCode).toBe(0);
   });
 });
 

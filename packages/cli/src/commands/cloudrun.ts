@@ -1,3 +1,5 @@
+// fallow-ignore-file code-duplication
+import { failCommand } from "../utils/commandResult.js";
 /**
  * `hyperframes cloudrun` — deploy + drive distributed renders on Google
  * Cloud Run + Cloud Workflows.
@@ -244,7 +246,7 @@ export default defineCommand({
       } catch (error) {
         if (isMissingCloudRunAdapterError(error)) {
           console.error(missingCloudRunAdapterMessage(subcommand));
-          process.exit(1);
+          failCommand();
         }
         throw error;
       }
@@ -264,7 +266,7 @@ export default defineCommand({
         return runDestroy(args);
       default:
         console.error(`${c.error("Unknown subcommand:")} ${subcommand}\n${HELP}`);
-        process.exit(1);
+        failCommand();
     }
   },
 });
@@ -303,7 +305,7 @@ function readState(args: Record<string, unknown>): StackState {
       `[cloudrun] missing stack coordinates: ${missing.join(", ")}. ` +
         `Run \`hyperframes cloudrun deploy --project <id>\` first, or pass them as flags.`,
     );
-    process.exit(1);
+    failCommand();
   }
   return merged as StackState;
 }
@@ -332,7 +334,7 @@ async function runDeploy(args: Record<string, unknown>): Promise<void> {
   const project = args.project as string | undefined;
   if (!project) {
     console.error("[cloudrun deploy] --project <gcp-project-id> is required.");
-    process.exit(1);
+    failCommand();
   }
   const region = (args.region as string | undefined) ?? "us-central1";
   const repo = (args.repo as string | undefined) ?? "hyperframes";
@@ -360,7 +362,7 @@ async function runDeploy(args: Record<string, unknown>): Promise<void> {
       console.error(
         "[cloudrun deploy] --image is required when not running from a hyperframes checkout (no Dockerfile context found).",
       );
-      process.exit(1);
+      failCommand();
     }
     // Ensure the Artifact Registry repo exists.
     const exists =
@@ -497,12 +499,12 @@ async function runSites(args: Record<string, unknown>): Promise<void> {
     console.error(
       `[cloudrun sites] unknown verb "${String(args.target)}". Only "create" is supported.`,
     );
-    process.exit(1);
+    failCommand();
   }
   const projectDir = args.extra as string | undefined;
   if (!projectDir) {
     console.error("[cloudrun sites create] usage: hyperframes cloudrun sites create <projectDir>");
-    process.exit(1);
+    failCommand();
   }
   const state = readState(args);
   const { deploySite } = await loadCloudRunAdapter();
@@ -530,19 +532,19 @@ async function runRender(args: Record<string, unknown>): Promise<void> {
     console.error(
       "[cloudrun render] usage: hyperframes cloudrun render <projectDir> --width <px> --height <px>",
     );
-    process.exit(1);
+    failCommand();
   }
   const width = parsePositiveInt(args.width, "--width");
   const height = parsePositiveInt(args.height, "--height");
   if (width === undefined || height === undefined) {
     console.error("[cloudrun render] --width and --height are required.");
-    process.exit(1);
+    failCommand();
   }
   const fps =
     parseIntFlag(args.fps) ?? readAllowedCompositionFpsFromDir(projectDir, [24, 30, 60]) ?? 30;
   if (fps !== 24 && fps !== 30 && fps !== 60) {
     console.error(`[cloudrun render] --fps must be 24, 30, or 60; got ${fps}.`);
-    process.exit(1);
+    failCommand();
   }
   const state = readState(args);
   const variables = resolveAndValidateVariables(args, resolve(projectDir));
@@ -590,7 +592,7 @@ async function runRender(args: Record<string, unknown>): Promise<void> {
   } else {
     console.error(`${c.error("✗ render " + progress.status)}`);
     for (const e of progress.errors) console.error(`  ${e.state}: ${e.cause}`);
-    process.exit(1);
+    failCommand();
   }
 }
 
@@ -601,7 +603,7 @@ async function runProgress(args: Record<string, unknown>): Promise<void> {
   const executionName = args.target as string | undefined;
   if (!executionName) {
     console.error("[cloudrun progress] usage: hyperframes cloudrun progress <executionName>");
-    process.exit(1);
+    failCommand();
   }
   const { getRenderProgress } = await loadCloudRunAdapter();
   const progress = await getRenderProgress({ executionName });
@@ -641,28 +643,28 @@ async function runRenderBatch(args: Record<string, unknown>): Promise<void> {
     console.error(
       "[cloudrun render-batch] usage: hyperframes cloudrun render-batch <projectDir> --batch <file.jsonl> --width <px> --height <px>",
     );
-    process.exit(1);
+    failCommand();
   }
   const width = parsePositiveInt(args.width, "--width");
   const height = parsePositiveInt(args.height, "--height");
   if (width === undefined || height === undefined) {
     console.error("[cloudrun render-batch] --width and --height are required.");
-    process.exit(1);
+    failCommand();
   }
   const fps =
     parseIntFlag(args.fps) ?? readAllowedCompositionFpsFromDir(projectDir, [24, 30, 60]) ?? 30;
   if (fps !== 24 && fps !== 30 && fps !== 60) {
     console.error(`[cloudrun render-batch] --fps must be 24, 30, or 60; got ${fps}.`);
-    process.exit(1);
+    failCommand();
   }
   if (!existsSync(resolve(batchPath))) {
     console.error(`[cloudrun render-batch] batch file not found: ${batchPath}`);
-    process.exit(1);
+    failCommand();
   }
   const entries = parseBatchFile(resolve(batchPath));
   if (entries.length === 0) {
     console.error("[cloudrun render-batch] batch file has no entries.");
-    process.exit(1);
+    failCommand();
   }
 
   const dryRun = Boolean(args["dry-run"]);
@@ -729,7 +731,7 @@ async function runRenderBatch(args: Record<string, unknown>): Promise<void> {
     );
     for (const r of failed) console.error(`  ✗ ${r.outputKey}: ${r.error}`);
   }
-  if (failed.length > 0) process.exit(1);
+  if (failed.length > 0) failCommand();
 }
 
 /** Parse a JSONL batch file into entries, exiting with a clear error on a bad line. */
@@ -745,7 +747,7 @@ function parseBatchFile(path: string): BatchEntry[] {
       parsed = JSON.parse(trimmed);
     } catch {
       console.error(`[cloudrun render-batch] line ${idx + 1}: not valid JSON`);
-      process.exit(1);
+      failCommand();
     }
     if (
       !parsed ||
@@ -755,7 +757,7 @@ function parseBatchFile(path: string): BatchEntry[] {
       console.error(
         `[cloudrun render-batch] line ${idx + 1}: must be an object with a string "outputKey"`,
       );
-      process.exit(1);
+      failCommand();
     }
     entries.push(parsed as BatchEntry);
   });
@@ -776,7 +778,7 @@ async function runDestroy(args: Record<string, unknown>): Promise<void> {
   const image = (args.image as string | undefined) ?? "unused:latest";
   if (!project) {
     console.error("[cloudrun destroy] --project is required (or deploy first to cache it).");
-    process.exit(1);
+    failCommand();
   }
   const vars = [
     "-var",

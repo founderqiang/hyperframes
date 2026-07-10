@@ -31,6 +31,7 @@ import {
   type MotionSpecResolution,
 } from "../utils/checkPipeline.js";
 import { resolveCompositionViewportFromHtml } from "../utils/compositionViewport.js";
+import { consumeCommandResult } from "../utils/commandResult.js";
 import type { ProjectLintResult } from "../utils/lintProject.js";
 import type {
   LayoutIssue,
@@ -46,10 +47,8 @@ const PROJECT: ProjectDir = {
   indexPath: "/project/index.html",
 };
 const PNG_BASE64 = Buffer.from("png-bytes").toString("base64");
-const ORIGINAL_EXIT_CODE = process.exitCode;
-
 afterEach(() => {
-  process.exitCode = ORIGINAL_EXIT_CODE;
+  consumeCommandResult();
   trackCheckReport.mockClear();
   vi.restoreAllMocks();
 });
@@ -384,7 +383,7 @@ it("rejects malformed caption-zone specs instead of silently disabling the gate"
   });
 
   expect(runPipeline).not.toHaveBeenCalled();
-  expect(process.exitCode).toBe(1);
+  expect(consumeCommandResult().exitCode).toBe(1);
   expect(log).toHaveBeenCalledTimes(1);
   expect(JSON.parse(String(log.mock.calls[0]?.[0]))).toEqual({
     ok: false,
@@ -799,10 +798,8 @@ describe("selectFindingCropRequests", () => {
 });
 
 describe("check pipeline", () => {
-  const originalExitCode = process.exitCode;
-
   afterEach(() => {
-    process.exitCode = originalExitCode;
+    consumeCommandResult();
     vi.restoreAllMocks();
   });
 
@@ -819,7 +816,7 @@ describe("check pipeline", () => {
 
     expect(report.ok).toBe(true);
     expect(checkExitCode(report)).toBe(0);
-    expect(process.exitCode).toBe(0);
+    expect(consumeCommandResult().exitCode).toBe(0);
     expect(log).toHaveBeenCalledTimes(1);
     const output = log.mock.calls[0]?.[0];
     expect(typeof output).toBe("string");

@@ -1,3 +1,4 @@
+import { failCommand } from "../utils/commandResult.js";
 import { defineCommand } from "citty";
 import type { Example } from "./_examples.js";
 import { c } from "../ui/colors.js";
@@ -86,7 +87,7 @@ ${c.dim("You can also set")} ${c.accent("HYPERFRAMES_NO_TELEMETRY=1")} ${c.dim("
         console.error(
           `${c.error("Unknown subcommand:")} ${subcommand}\n\nRun ${c.accent("hyperframes telemetry --help")} for usage.`,
         );
-        process.exit(1);
+        failCommand();
     }
   },
 });

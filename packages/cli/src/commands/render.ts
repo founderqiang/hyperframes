@@ -1,3 +1,4 @@
+import { failCommand, setCommandExitCode, requestCliExit } from "../utils/commandResult.js";
 import { defineCommand } from "citty";
 import type { Example } from "./_examples.js";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, rmSync } from "node:fs";
@@ -445,7 +446,7 @@ export default defineCommand({
     const fpsParse = parseFps(fpsArg ?? "30");
     if (!fpsParse.ok) {
       errorBox("Invalid fps", formatFpsParseError(fpsArg ?? "30", fpsParse.reason));
-      process.exit(1);
+      failCommand();
     }
     let fps: Fps = fpsParse.value;
 
@@ -453,7 +454,7 @@ export default defineCommand({
     const qualityRaw = args.quality ?? "standard";
     if (!VALID_QUALITY.has(qualityRaw)) {
       errorBox("Invalid quality", `Got "${qualityRaw}". Must be draft, standard, or high.`);
-      process.exit(1);
+      failCommand();
     }
     const quality = qualityRaw as "draft" | "standard" | "high";
 
@@ -478,7 +479,7 @@ export default defineCommand({
     const format = parseRenderFormat(formatRaw);
     if (!format) {
       errorBox("Invalid format", `Got "${formatRaw}". Must be ${RENDER_FORMAT_LABEL}.`);
-      process.exit(1);
+      failCommand();
     }
 
     let gifFpsCapped = false;
@@ -490,7 +491,7 @@ export default defineCommand({
     const gifLoopParse = parseGifLoopArg(args["gif-loop"]);
     if (!gifLoopParse.ok) {
       errorBox("Invalid gif-loop", gifLoopParse.message);
-      process.exit(1);
+      failCommand();
     }
     const gifLoop = gifLoopParse.value ?? (format === "gif" ? 0 : undefined);
 
@@ -500,7 +501,7 @@ export default defineCommand({
         "Invalid video-frame-format",
         `Got "${videoFrameFormatRaw}". Must be auto, jpg, or png.`,
       );
-      process.exit(1);
+      failCommand();
     }
     const videoFrameFormat = videoFrameFormatRaw;
 
@@ -523,7 +524,7 @@ export default defineCommand({
           `Got "${args.resolution}". Must be one of: landscape, portrait, landscape-4k, portrait-4k, square, square-4k ` +
             `(or aliases 1080p, 4k, uhd, 1080p-square, square-1080p, 4k-square).`,
         );
-        process.exit(1);
+        failCommand();
       }
       outputResolutionAspectAgnostic = isAspectAgnosticResolutionAlias(args.resolution);
       // Reject the --resolution + --hdr combination at the CLI layer so the
@@ -536,7 +537,7 @@ export default defineCommand({
           "--resolution cannot be combined with --hdr. The HDR pipeline composites at composition dimensions and does not yet support supersampling.",
           "Render in two passes: HDR at composition resolution, then upscale separately with ffmpeg.",
         );
-        process.exit(1);
+        failCommand();
       }
     }
 
@@ -546,7 +547,7 @@ export default defineCommand({
       const parsed = parseInt(args.workers, 10);
       if (isNaN(parsed) || parsed < 1) {
         errorBox("Invalid workers", `Got "${args.workers}". Must be a positive number or "auto".`);
-        process.exit(1);
+        failCommand();
       }
       workers = parsed;
     }
@@ -560,7 +561,7 @@ export default defineCommand({
           "Invalid protocol-timeout",
           `Got "${args["protocol-timeout"]}". Must be a number >= 1000 (ms).`,
         );
-        process.exit(1);
+        failCommand();
       }
       protocolTimeout = parsed;
     }
@@ -572,7 +573,7 @@ export default defineCommand({
           "Invalid player-ready-timeout",
           `Got "${args["player-ready-timeout"]}". Must be a number >= 1000 (ms).`,
         );
-        process.exit(1);
+        failCommand();
       }
       playerReadyTimeout = parsed;
     }
@@ -618,7 +619,7 @@ export default defineCommand({
           "Invalid max-concurrent-renders",
           `Got "${args["max-concurrent-renders"]}". Must be a number between 1 and 10.`,
         );
-        process.exit(1);
+        failCommand();
       }
       process.env.PRODUCER_MAX_CONCURRENT_RENDERS = String(parsed);
     }
@@ -631,16 +632,16 @@ export default defineCommand({
         "Conflicting variables flags",
         "Use either --batch or --variables/--variables-file, not both.",
       );
-      process.exit(1);
+      failCommand();
     }
 
     if (!batchPath && args["batch-concurrency"] != null) {
       errorBox("Invalid batch-concurrency", "--batch-concurrency requires --batch.");
-      process.exit(1);
+      failCommand();
     }
     if (!batchPath && args["batch-fail-fast"]) {
       errorBox("Invalid batch-fail-fast", "--batch-fail-fast requires --batch.");
-      process.exit(1);
+      failCommand();
     }
 
     let batchConcurrency = 1;
@@ -651,7 +652,7 @@ export default defineCommand({
           "Invalid batch-concurrency",
           `Got "${args["batch-concurrency"]}". Must be a positive integer.`,
         );
-        process.exit(1);
+        failCommand();
       }
       batchConcurrency = parsed;
     }
@@ -687,7 +688,7 @@ export default defineCommand({
 
     if (crfRaw != null && videoBitrate) {
       errorBox("Conflicting encoder settings", "Use either --crf or --video-bitrate, not both.");
-      process.exit(1);
+      failCommand();
     }
 
     if (useDocker && browserGpuArg === true) {
@@ -696,7 +697,7 @@ export default defineCommand({
         "--browser-gpu uses the host Chrome GPU backend. Docker mode keeps browser rendering deterministic and does not expose a cross-platform Chrome GPU backend.",
         "Run without --docker, or use --gpu for Docker GPU encoding where your Docker host supports GPU passthrough.",
       );
-      process.exit(1);
+      failCommand();
     }
 
     let crf: number | undefined;
@@ -704,7 +705,7 @@ export default defineCommand({
       const parsed = Number(crfRaw);
       if (!Number.isInteger(parsed) || parsed < 0) {
         errorBox("Invalid crf", `Got "${crfRaw}". Must be a non-negative integer.`);
-        process.exit(1);
+        failCommand();
       }
       crf = parsed;
     }
@@ -718,7 +719,7 @@ export default defineCommand({
           "Invalid vp9-cpu-used",
           `Got "${raw}". Must be an integer between ${MIN_VP9_CPU_USED} and ${MAX_VP9_CPU_USED}.`,
         );
-        process.exit(1);
+        failCommand();
       }
       vp9CpuUsed = parsed;
     }
@@ -728,7 +729,7 @@ export default defineCommand({
         "Invalid video-bitrate",
         `Got "${args["video-bitrate"]}". Must be a non-empty bitrate such as "10M".`,
       );
-      process.exit(1);
+      failCommand();
     }
 
     if (!quiet && gifFpsCapped) {
@@ -859,7 +860,7 @@ export default defineCommand({
           normalizeErrorMessage(err),
           "Run: npx hyperframes browser ensure",
         );
-        process.exit(1);
+        failCommand();
       }
     }
 
@@ -884,7 +885,7 @@ export default defineCommand({
           console.log("");
           console.log(c.error(`  Aborting render due to lint issues (${mode} mode).`));
           console.log("");
-          process.exit(1);
+          failCommand();
         }
         console.log(c.dim(renderLintContinuationHint(strictErrors)));
         console.log("");
@@ -921,14 +922,14 @@ export default defineCommand({
         // gave up — i.e. measure whether the P1-3 fix is doing its job.
         trackRenderPreflightRejected({ kind: resolutionIssue.kind });
         errorBox("Output resolution incompatible", resolutionIssue.message);
-        process.exit(1);
+        failCommand();
       }
     }
 
     // ── Validate HDR/SDR mutual exclusion ────────────────────────────────
     if (args.hdr && args.sdr) {
       console.error("Error: --hdr and --sdr are mutually exclusive.");
-      process.exit(1);
+      failCommand();
     }
 
     // ── Batch render ──────────────────────────────────────────────────────
@@ -988,7 +989,7 @@ export default defineCommand({
                 variables: row.variables,
               }),
       });
-      if (manifest.failed > 0) process.exitCode = 1;
+      if (manifest.failed > 0) setCommandExitCode(1);
       return;
     }
 
@@ -1076,6 +1077,7 @@ export interface SingleRenderResult {
   warnings?: Array<{ code: string; message: string }>;
 }
 
+// fallow-ignore-next-line unused-export
 export function renderLintContinuationHint(strictErrors: boolean): string {
   return strictErrors
     ? "  Continuing render despite lint warnings. Use --strict-all to block warnings."
@@ -1400,7 +1402,7 @@ function resolveDockerHostPlatform(options: RenderOptions): string {
       "Docker Desktop/colima on Apple Silicon doesn't expose --gpus host passthrough to linux/arm64 containers.",
       "Drop --gpu, or run a native (non-Docker) render on this host, or set HYPERFRAMES_DOCKER_PLATFORM=linux/amd64 if you need GPU encoding (slow under qemu but works).",
     );
-    process.exit(1);
+    failCommand();
   }
 
   if (!options.quiet && platform === "linux/arm64") {
@@ -1453,7 +1455,7 @@ async function renderDocker(
         ? "Install Docker: https://docs.docker.com/get-docker/"
         : "Check Docker is running: docker info",
     );
-    process.exit(1);
+    failCommand();
   }
 
   const outputDir = dirname(outputPath);
@@ -1583,7 +1585,7 @@ export async function renderLocal(
     for (const check of failedChecks) {
       errorBox(check.title ?? `${check.name} check failed`, check.detail, check.hint);
     }
-    process.exit(1);
+    failCommand();
   }
   if (!options.quiet) {
     for (const outcome of preflight.outcomes) {
@@ -1751,7 +1753,7 @@ function isUnrefableTimer(
 }
 
 function scheduleRenderProcessExit(): void {
-  const timer = setTimeout(() => process.exit(0), 100);
+  const timer = setTimeout(() => requestCliExit(0), 100);
   if (isUnrefableTimer(timer)) timer.unref();
 }
 
@@ -2142,7 +2144,7 @@ function handleRenderError(
   const remediation = chromeLaunchRemediation(message);
   if (remediation) {
     errorBox("Render failed — Chrome could not launch", message, remediation);
-    process.exit(1);
+    failCommand();
   }
   // macOS <13 dyld Symbol-not-found on the pinned chrome-headless-shell
   // build. Different remediation shape (older shell + env-var override)
@@ -2153,7 +2155,7 @@ function handleRenderError(
     process.exit(1);
   }
   errorBox("Render failed", message, hint);
-  process.exit(1);
+  failCommand();
 }
 
 /**

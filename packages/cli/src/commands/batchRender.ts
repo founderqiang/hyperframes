@@ -1,3 +1,4 @@
+import { failCommand } from "../utils/commandResult.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { c } from "../ui/colors.js";
@@ -34,7 +35,7 @@ export interface PreparedBatchRender {
   rows: PreparedBatchRow[];
 }
 
-export interface BatchRenderResult {
+interface BatchRenderResult {
   durationMs?: number;
   renderTimeMs: number;
 }
@@ -154,7 +155,7 @@ function isSameOrChildPath(path: string, parent: string): boolean {
   return path === parent || path.startsWith(parent.endsWith(sep) ? parent : parent + sep);
 }
 
-export function commonOutputDirectory(outputPaths: readonly string[]): string {
+function commonOutputDirectory(outputPaths: readonly string[]): string {
   const firstPath = outputPaths[0];
   if (!firstPath) return resolve("renders");
 
@@ -449,10 +450,12 @@ export async function runBatchRender(options: RunBatchRenderOptions): Promise<Ba
   return manifest;
 }
 
+// Called through render.ts's lazy batch module; static reachability cannot see it.
+// fallow-ignore-next-line unused-export
 export function exitBatchRenderInputError(error: unknown): never {
   if (error instanceof BatchRenderInputError) {
     errorBox(error.title, error.message, error.hint);
-    process.exit(1);
+    failCommand();
   }
   throw error;
 }

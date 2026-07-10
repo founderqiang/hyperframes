@@ -1,3 +1,4 @@
+import { failCommand } from "../utils/commandResult.js";
 import { resolve } from "node:path";
 import { defineCommand } from "citty";
 import * as clack from "@clack/prompts";
@@ -158,7 +159,7 @@ export default defineCommand({
     const rating = parseFeedbackRating(args.rating);
     if (rating === null) {
       console.error(c.error("Rating must be an integer between 0 and 10"));
-      process.exit(1);
+      failCommand();
     }
 
     if (!shouldTrack()) {

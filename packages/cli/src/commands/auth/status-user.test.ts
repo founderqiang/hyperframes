@@ -1,8 +1,10 @@
+// fallow-ignore-file code-duplication
 import { promises as fs } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeStore } from "../../auth/store.js";
+import { consumeCommandResult } from "../../utils/commandResult.js";
 
 // Mock only AuthClient so the live /v3/users/me probe is controllable;
 // keep the real store/resolver/user helpers so the test exercises the
@@ -48,9 +50,7 @@ describe("auth status — persisted user block surface", () => {
     probeState.apiReject = false;
     probeState.user = { email: "live@example.com" };
     stdout = [];
-    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit:${code ?? 0}`);
-    }) as never);
+    consumeCommandResult();
     vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
       stdout.push(args.join(" "));
     });
@@ -58,6 +58,7 @@ describe("auth status — persisted user block surface", () => {
   });
 
   afterEach(async () => {
+    consumeCommandResult();
     vi.restoreAllMocks();
     for (const k of ENV_KEYS) {
       const v = saved[k];
@@ -69,16 +70,10 @@ describe("auth status — persisted user block surface", () => {
 
   async function runStatus(asJson: boolean): Promise<number> {
     const cmd = (await import("./status.js")).default;
-    try {
-      await (cmd.run as (ctx: { args: Record<string, unknown> }) => Promise<void>)({
-        args: { json: asJson },
-      });
-      return 0;
-    } catch (err) {
-      const m = /process\.exit:(\d+)/.exec((err as Error).message);
-      if (m) return Number(m[1]);
-      throw err;
-    }
+    await (cmd.run as (ctx: { args: Record<string, unknown> }) => Promise<void>)({
+      args: { json: asJson },
+    });
+    return consumeCommandResult().exitCode;
   }
 
   function lastJson(): Record<string, unknown> {
