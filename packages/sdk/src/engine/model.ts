@@ -372,11 +372,39 @@ export function setStyleSheet(document: Document, css: string): void {
 
 // ─── GSAP script helpers ──────────────────────────────────────────────────────
 
+function findScriptElementsDeep(document: Document): Element[] {
+  const scripts: Element[] = [];
+  const walk = (parent: Element): void => {
+    for (const child of Array.from(parent.children)) {
+      const tag = child.tagName.toLowerCase();
+      if (tag === "script") {
+        scripts.push(child);
+        continue;
+      }
+      if (tag === "template") {
+        if (isCompositionTemplate(child)) walk(child);
+        continue;
+      }
+      walk(child);
+    }
+  };
+  if (document.documentElement) walk(document.documentElement);
+  return scripts;
+}
+
+export function getGsapScripts(document: Document): string[] {
+  return findScriptElementsDeep(document)
+    .map((script) => script.textContent ?? "")
+    .filter(
+      (text) =>
+        text.includes("gsap") || text.includes("__timelines") || text.includes("ScrollTrigger"),
+    );
+}
+
 function findGsapScriptElement(document: Document): Element | null {
-  const scripts = document.querySelectorAll("script");
-  for (const script of Array.from(scripts)) {
+  for (const script of findScriptElementsDeep(document)) {
     const text = script.textContent ?? "";
-    if (text.includes("gsap") || text.includes("ScrollTrigger"))
+    if (text.includes("gsap") || text.includes("__timelines") || text.includes("ScrollTrigger"))
       return script as unknown as Element;
   }
   return null;

@@ -35,7 +35,12 @@ import type { PersistAdapter, PreviewAdapter } from "./adapters/types.js";
 import { parseMutable } from "./engine/model.js";
 import type { ParsedDocument } from "./engine/model.js";
 import { applyOp, validateOp, type MutationResult } from "./engine/mutate.js";
-import { getGsapScript, resolveScoped, declarationElement } from "./engine/model.js";
+import {
+  getGsapScript,
+  getGsapScripts,
+  resolveScoped,
+  declarationElement,
+} from "./engine/model.js";
 import { extractGsapLabels } from "@hyperframes/core/gsap-parser-acorn";
 import { stripEmbeddedRuntimeScripts } from "@hyperframes/core/compiler/html-document";
 import { parseStartExpression } from "@hyperframes/core/runtime/start-expression";
@@ -555,8 +560,11 @@ class CompositionImpl implements Composition {
   }
 
   getAllAnimationIds(): Set<string> {
-    const script = getGsapScript(this.parsed.document);
-    return script ? parsedAnimationIds(script) : new Set();
+    const ids = new Set<string>();
+    for (const script of getGsapScripts(this.parsed.document)) {
+      for (const id of parsedAnimationIds(script)) ids.add(id);
+    }
+    return ids;
   }
 
   // ── Selection API ────────────────────────────────────────────────────────────
