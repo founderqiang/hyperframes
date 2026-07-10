@@ -40,7 +40,8 @@
     "build": "vite build && tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "report:sdk-cutover": "bun src/utils/sdkCutoverPolicy.report.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
