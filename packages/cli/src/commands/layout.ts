@@ -26,10 +26,21 @@ import {
   type MotionFrame,
 } from "../utils/motionAudit.js";
 import { findMotionSpec, readMotionSpec, type MotionSpec } from "../utils/motionSpec.js";
+import {
+  seekCompositionTimeline,
+  waitForCompositionFonts,
+  type SeekCompositionTimelineOptions,
+} from "../capture/captureCompositionFrame.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const SEEK_SETTLE_MS = 120;
+const LAYOUT_SEEK_OPTIONS: SeekCompositionTimelineOptions = {
+  fallbackToBridgeAndTimelines: true,
+  animationFrameSettle: "double",
+  waitForFontsMs: 500,
+  settleMs: SEEK_SETTLE_MS,
+};
 // All new envelope fields are optional (?); additive changes don't bump this.
 const INSPECT_SCHEMA_VERSION = 1;
 // Motion verification (#1437): dense sampling grid for the seeked-timeline checks.
@@ -68,6 +79,8 @@ function buildMotionSampleTimes(duration: number): number[] {
 }
 
 async function getCompositionDuration(page: import("puppeteer-core").Page): Promise<number> {
+  // Serialized into the page; the duration-source cascade cannot be split.
+  // fallow-ignore-next-line complexity
   return page.evaluate(() => {
     const win = window as unknown as {
       __hf?: { duration?: number };
@@ -94,52 +107,6 @@ async function getCompositionDuration(page: import("puppeteer-core").Page): Prom
 
     return 0;
   });
-}
-
-async function waitForFonts(page: import("puppeteer-core").Page, timeoutMs: number): Promise<void> {
-  await page
-    .evaluate((ms: number) => {
-      const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
-      if (!fonts?.ready) return Promise.resolve();
-      return Promise.race([
-        fonts.ready.then(() => undefined),
-        new Promise<void>((resolve) => setTimeout(resolve, ms)),
-      ]);
-    }, timeoutMs)
-    .catch(() => {});
-}
-
-async function seekTo(page: import("puppeteer-core").Page, time: number): Promise<void> {
-  await page.evaluate((t: number) => {
-    const win = window as unknown as {
-      __hf?: { seek?: (time: number) => void };
-      __player?: { seek?: (time: number) => void };
-      __timelines?: Record<string, { pause?: () => void; seek?: (time: number) => void }>;
-    };
-    if (typeof win.__hf?.seek === "function") {
-      win.__hf.seek(t);
-      return;
-    }
-    if (typeof win.__player?.seek === "function") {
-      win.__player.seek(t);
-      return;
-    }
-    const timelines = win.__timelines;
-    if (timelines) {
-      for (const timeline of Object.values(timelines)) {
-        if (typeof timeline.pause === "function") timeline.pause();
-        if (typeof timeline.seek === "function") timeline.seek(t);
-      }
-    }
-  }, time);
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolveFrame) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolveFrame())),
-      ),
-  );
-  await waitForFonts(page, 500);
-  await new Promise((resolveSettle) => setTimeout(resolveSettle, SEEK_SETTLE_MS));
 }
 
 /**
@@ -234,6 +201,7 @@ async function runLayoutAudit(
 ): Promise<LayoutAuditResult> {
   const { ensureBrowser } = await import("../browser/manager.js");
   const puppeteer = await import("puppeteer-core");
+  const { buildChromeArgs } = await import("@hyperframes/engine");
   const html = await bundleProjectHtml(projectDir);
   const server = await serveStaticProjectHtml(
     projectDir,
@@ -247,14 +215,7 @@ async function runLayoutAudit(
     chromeBrowser = await puppeteer.default.launch({
       headless: true,
       executablePath: browser.executablePath,
-      args: [
-        "--no-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--enable-webgl",
-        "--use-gl=angle",
-        "--use-angle=swiftshader",
-      ],
+      args: buildChromeArgs({ width: 1920, height: 1080, captureMode: "screenshot" }),
     });
 
     const page = await chromeBrowser.newPage();
@@ -266,7 +227,7 @@ async function runLayoutAudit(
         timeout: opts.timeout,
       })
       .catch(() => {});
-    await waitForFonts(page, 750);
+    await waitForCompositionFonts(page, 750);
     await new Promise((resolveSettle) => setTimeout(resolveSettle, 250));
 
     const duration = await getCompositionDuration(page);
@@ -330,7 +291,7 @@ async function collectLayoutIssues(
 
   const issues: LayoutIssue[] = [];
   for (const time of samples) {
-    await seekTo(page, time);
+    await seekCompositionTimeline(page, time, LAYOUT_SEEK_OPTIONS);
     const sampleIssues = await page.evaluate(
       (auditOptions: { time: number; tolerance: number }) => {
         const win = window as unknown as {
@@ -373,7 +334,7 @@ async function collectMotionFrames(
 ): Promise<MotionFrame[]> {
   const frames: MotionFrame[] = [];
   for (const time of times) {
-    await seekTo(page, time);
+    await seekCompositionTimeline(page, time, LAYOUT_SEEK_OPTIONS);
     const sample = await page.evaluate(
       (options: { selectors: string[]; livenessScopes: string[] }) => {
         const win = window as unknown as {
@@ -512,6 +473,8 @@ export function createInspectCommand(commandName: "inspect" | "layout") {
         default: false,
       },
     },
+    // Pre-existing command-run branching; U1 only swapped the seek internals.
+    // fallow-ignore-next-line complexity
     async run({ args }) {
       const project = resolveProject(args.dir);
       const samples = Math.max(1, parseInt(args.samples as string, 10) || 9);

@@ -131,6 +131,16 @@ describe("waitForPreferredSeekTarget", () => {
 
     await expect(waitForPreferredSeekTarget(page, 1)).resolves.toBeUndefined();
   });
+
+  it("does not fail validation when the page stub throws synchronously", async () => {
+    const page = {
+      waitForFunction: vi.fn(() => {
+        throw new Error("waiting failed synchronously");
+      }),
+    };
+
+    await expect(waitForPreferredSeekTarget(page, 1)).resolves.toBeUndefined();
+  });
 });
 
 describe("extractCompositionErrorsFromLint", () => {
