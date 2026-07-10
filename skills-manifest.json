@@ -6,43 +6,43 @@
       "files": 144
     },
     "faceless-explainer": {
-      "hash": "09bc257e79dabebc",
+      "hash": "a09191a97564b114",
       "files": 18
     },
     "figma": {
-      "hash": "99538ee56a4ca553",
+      "hash": "0e6e96f5a76ff824",
       "files": 2
     },
     "general-video": {
-      "hash": "67f3dae100541eed",
+      "hash": "1aed9f4f68414a45",
       "files": 1
     },
     "hyperframes": {
-      "hash": "132596767485f923",
+      "hash": "fce43b4c3355cde9",
       "files": 1
     },
     "hyperframes-animation": {
-      "hash": "16ecdf00cf5cebf1",
+      "hash": "b982a1af9821e326",
       "files": 99
     },
     "hyperframes-cli": {
-      "hash": "8ca3bef87f169ba1",
+      "hash": "f1c8c70693101e59",
       "files": 7
     },
     "hyperframes-core": {
-      "hash": "511a6283a5dbd7ea",
+      "hash": "507aecd0bb312a94",
       "files": 14
     },
     "hyperframes-creative": {
-      "hash": "d60c84ddca9ea6db",
+      "hash": "3e5bcbf46dc14427",
       "files": 69
     },
     "hyperframes-keyframes": {
-      "hash": "555c0cd491c40cea",
+      "hash": "040453e302a0e15b",
       "files": 3
     },
     "hyperframes-registry": {
-      "hash": "e3b389526834109d",
+      "hash": "5f49178cc43e100b",
       "files": 10
     },
     "media-use": {
@@ -50,19 +50,19 @@
       "files": 122
     },
     "motion-graphics": {
-      "hash": "0f1ac928e387a74c",
+      "hash": "dafcdce07d221aa4",
       "files": 23
     },
     "music-to-video": {
-      "hash": "5bb405421a7e19ba",
+      "hash": "ccb6181af8bcef09",
       "files": 132
     },
     "pr-to-video": {
-      "hash": "a93fde2b33b26e75",
+      "hash": "21dcf8aa94fc1033",
       "files": 22
     },
     "product-launch-video": {
-      "hash": "14404973ef5d38a0",
+      "hash": "158398dbfc4ab652",
       "files": 20
     },
     "remotion-to-hyperframes": {
@@ -70,7 +70,7 @@
       "files": 70
     },
     "slideshow": {
-      "hash": "114b57cf22b39068",
+      "hash": "0f0364c54f77cb9b",
       "files": 2
     },
     "talking-head-recut": {
@@ -78,7 +78,7 @@
       "files": 27
     },
     "website-to-video": {
-      "hash": "79af52a847abaa43",
+      "hash": "e8143700c50b7469",
       "files": 32
     }
   }

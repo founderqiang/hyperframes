@@ -12,6 +12,9 @@ vi.mock("./config.js", () => ({
 }));
 
 const {
+  trackCommand,
+  trackCommandResult,
+  trackCheckReport,
   trackRenderComplete,
   trackRenderError,
   trackRenderObservation,
@@ -25,6 +28,148 @@ const {
   trackAuthLoginFailed,
   identifyUser,
 } = await import("./events.js");
+
+describe("command telemetry events", () => {
+  beforeEach(() => {
+    trackEvent.mockClear();
+  });
+
+  it("includes run_id in cli_command when a run ID is provided", () => {
+    trackCommand("check", "run-123");
+
+    expect(trackEvent).toHaveBeenCalledWith("cli_command", {
+      command: "check",
+      run_id: "run-123",
+    });
+  });
+
+  it("omits run_id from cli_command when no run ID is provided", () => {
+    trackCommand("check");
+
+    const properties = trackEvent.mock.lastCall?.[1];
+    expect(properties).not.toHaveProperty("run_id");
+  });
+
+  it("includes run_id in cli_command_result when a run ID is provided", () => {
+    trackCommandResult({
+      command: "check",
+      success: true,
+      exitCode: 0,
+      durationMs: 42,
+      runId: "run-123",
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith("cli_command_result", {
+      command: "check",
+      success: true,
+      exit_code: 0,
+      duration_ms: 42,
+      run_id: "run-123",
+    });
+  });
+
+  it("omits run_id from cli_command_result when no run ID is provided", () => {
+    trackCommandResult({
+      command: "check",
+      success: false,
+      exitCode: 1,
+      durationMs: 42,
+    });
+
+    const properties = trackEvent.mock.lastCall?.[1];
+    expect(properties).not.toHaveProperty("run_id");
+  });
+});
+
+describe("trackCheckReport", () => {
+  beforeEach(() => {
+    trackEvent.mockClear();
+  });
+
+  it("emits the check breakdown with snake_case properties and a run ID", () => {
+    trackCheckReport({
+      contrastGate: true,
+      motionGate: false,
+      captionZoneGate: true,
+      frameCheckGate: false,
+      snapshotsGate: true,
+      lintErrors: 1,
+      lintWarnings: 2,
+      runtimeErrors: 3,
+      runtimeWarnings: 4,
+      layoutErrors: 5,
+      layoutWarnings: 6,
+      motionErrors: 7,
+      motionWarnings: 8,
+      contrastErrors: 9,
+      contrastWarnings: 10,
+      launchSettleMs: 11,
+      seekLoopMs: 12,
+      contrastMs: 13,
+      gridPoints: 14,
+      contrastPoints: 15,
+      ok: false,
+      exitCode: 1,
+      runId: "run-123",
+    });
+
+    expect(trackEvent).toHaveBeenCalledWith("check_report", {
+      gate_contrast: true,
+      gate_motion: false,
+      gate_caption_zone: true,
+      gate_frame_check: false,
+      gate_snapshots: true,
+      lint_errors: 1,
+      lint_warnings: 2,
+      runtime_errors: 3,
+      runtime_warnings: 4,
+      layout_errors: 5,
+      layout_warnings: 6,
+      motion_errors: 7,
+      motion_warnings: 8,
+      contrast_errors: 9,
+      contrast_warnings: 10,
+      launch_settle_ms: 11,
+      seek_loop_ms: 12,
+      contrast_ms: 13,
+      grid_points: 14,
+      contrast_points: 15,
+      ok: false,
+      exit_code: 1,
+      run_id: "run-123",
+    });
+  });
+
+  it("omits run_id when no run ID is provided", () => {
+    trackCheckReport({
+      contrastGate: false,
+      motionGate: false,
+      captionZoneGate: false,
+      frameCheckGate: false,
+      snapshotsGate: false,
+      lintErrors: 0,
+      lintWarnings: 0,
+      runtimeErrors: 0,
+      runtimeWarnings: 0,
+      layoutErrors: 0,
+      layoutWarnings: 0,
+      motionErrors: 0,
+      motionWarnings: 0,
+      contrastErrors: 0,
+      contrastWarnings: 0,
+      launchSettleMs: 0,
+      seekLoopMs: 0,
+      contrastMs: 0,
+      gridPoints: 0,
+      contrastPoints: 0,
+      ok: true,
+      exitCode: 0,
+    });
+
+    const properties = trackEvent.mock.lastCall?.[1];
+    expect(properties).not.toHaveProperty("run_id");
+  });
+});
 
 describe("render telemetry events", () => {
   beforeEach(() => {
