@@ -88,4 +88,25 @@ describe("isMemoryExhaustionError", () => {
     expect(isTransientBrowserError(new Error("Set maximum size exceeded"))).toBe(false);
     expect(isMemoryExhaustionError(new Error("Target closed"))).toBe(false);
   });
+
+  // The producer's deployed runtime is Bun (JavaScriptCore), not Node (V8) —
+  // none of the V8-specific patterns above match JSC's allocation-failure
+  // message. Verified against real Bun behavior: `new
+  // Uint8Array(Number.MAX_SAFE_INTEGER)`, an unbounded `Set`, and
+  // `"x".repeat(2**53)` all throw exactly "Out of memory" under `bun run`.
+  it("recognizes Bun/JavaScriptCore's exact OOM message", () => {
+    expect(isMemoryExhaustionError(new Error("Out of memory"))).toBe(true);
+    expect(isMemoryExhaustionError(new Error("out of memory"))).toBe(true);
+    expect(isMemoryExhaustionError(new Error("Out of memory."))).toBe(true);
+    expect(isMemoryExhaustionError(new Error("  Out of memory  "))).toBe(true);
+  });
+
+  // Exact-message match only — a compound message merely containing the
+  // phrase (e.g. wrapped with extra context) must NOT trip this, same
+  // rationale as the WebGL/GPU noise case above.
+  it("does not match 'out of memory' as a mere substring of a longer message", () => {
+    expect(isMemoryExhaustionError(new Error("Worker crashed: Out of memory during capture"))).toBe(
+      false,
+    );
+  });
 });

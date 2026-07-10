@@ -3291,7 +3291,21 @@ const MEMORY_EXHAUSTION_ERROR_PATTERNS = [
   /JavaScript heap out of memory/i,
 ];
 
+// The producer's deployed runtime is Bun (JavaScriptCore), not Node (V8) —
+// see `packages/gcp-cloud-run/Dockerfile`'s `CMD ["bun", "dist/server.js"]`.
+// JSC's own allocation-failure message for the equivalent single-oversized-
+// allocation RangeErrors above is the bare string "Out of memory" (verified:
+// `new Uint8Array(Number.MAX_SAFE_INTEGER)`, an unbounded `Set`, and
+// `"x".repeat(2**53)` all throw exactly this under Bun) — none of the V8
+// patterns above match it. This is exactly the substring the comment above
+// says NOT to match anywhere in the message (benign browser-console noise
+// like a WebGL `CONTEXT_LOST … out of memory` carries that phrase too), so
+// this checks the ENTIRE (trimmed) message equals it, not merely contains
+// it — a compound message with other text around the phrase still misses.
+const BUN_MEMORY_EXHAUSTION_EXACT_MESSAGE = /^out of memory\.?$/i;
+
 export function isMemoryExhaustionError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
+  if (BUN_MEMORY_EXHAUSTION_EXACT_MESSAGE.test(message.trim())) return true;
   return MEMORY_EXHAUSTION_ERROR_PATTERNS.some((pattern) => pattern.test(message));
 }
