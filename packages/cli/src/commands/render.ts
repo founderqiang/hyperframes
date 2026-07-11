@@ -901,10 +901,10 @@ export default defineCommand({
         exitAfterComplete: false,
         throwOnError: true,
         skipFeedback: true,
-        // Real concurrent workers (batchConcurrency > 1) can't safely share
-        // the trial's process-wide env var/flag — see disableDeParallelRouterTrial's
-        // own doc comment.
-        disableDeParallelRouterTrial: batchConcurrency > 1,
+        // Sequential batch rows may trial; real concurrent workers
+        // (batchConcurrency > 1) can't safely share the trial's process-wide
+        // env var/flags — see enableDeParallelRouterTrial's own doc comment.
+        enableDeParallelRouterTrial: batchConcurrency <= 1,
       };
       const manifest = await batchModule.runBatchRender({
         prepared: preparedBatch,
@@ -991,6 +991,9 @@ export default defineCommand({
         protocolTimeout,
         playerReadyTimeout,
         exitAfterComplete: true,
+        // The single top-level CLI render is sequential by construction — the
+        // one place the trial's process-wide state is unconditionally safe.
+        enableDeParallelRouterTrial: true,
       });
     }
   },
@@ -1048,18 +1051,21 @@ interface RenderOptions {
   /** Skip the interactive feedback prompt after a successful render. */
   skipFeedback?: boolean;
   /**
-   * Disable the DE parallel-router CLI trial (`maybeEnableDeParallelRouterTrial`)
-   * for this render. Set by `--batch --batch-concurrency N>=2`: that mechanism
-   * shares one process-wide env var and one module-level flag across every
-   * `renderLocal` call in the process, which is safe for SEQUENTIAL calls
-   * (the ordinary single-worker batch case) but not for genuinely concurrent
-   * ones — two rows racing on the same global env var/flag could tear down
-   * or misattribute each other's outcome (review finding). Rather than
-   * attempt to make shared process-global state safe under real concurrency,
-   * simply don't offer the trial when it can't be — batch concurrency is an
-   * explicit opt-in, not the common case.
+   * OPT IN to the DE parallel-router CLI trial
+   * (`maybeEnableDeParallelRouterTrial`) for this render. Default OFF —
+   * only the top-level CLI render command's own call sites should ever set
+   * this (review): the trial mechanism shares one process-wide env var and
+   * two module-level flags across every `renderLocal` call in the process,
+   * which is safe for SEQUENTIAL calls (single render, single-concurrency
+   * batch rows) but not for genuinely concurrent ones — racing invocations
+   * could tear down or misattribute each other's outcome. Programmatic
+   * consumers importing `renderLocal` (a future studio-server path, test
+   * harnesses, distributed runners) therefore get NO trial unless they
+   * explicitly opt in AND guarantee sequential invocation. The CLI sets
+   * this for single renders and for `--batch` at concurrency 1; it leaves
+   * it unset for `--batch-concurrency N>=2`.
    */
-  disableDeParallelRouterTrial?: boolean;
+  enableDeParallelRouterTrial?: boolean;
 }
 
 /**
@@ -1441,7 +1447,7 @@ export async function renderLocal(
   const producer = await loadProducer();
   const deParallelRouterTrialArmed = maybeEnableDeParallelRouterTrial(
     options.quiet,
-    options.disableDeParallelRouterTrial === true,
+    options.enableDeParallelRouterTrial === true,
   );
 
   const startTime = Date.now();
@@ -1728,19 +1734,22 @@ function stopManagingDeParallelRouterTrial(): void {
  * to manually set the env var — see `HyperframesConfig.deParallelRouterTrialFired`.
  * See `maybeConsumeDeParallelRouterTrial` for what turns it off. Returns
  * whether this call armed it (so the caller knows to check for consumption
- * afterward) — false if `disabled` (set for `--batch-concurrency N>=2`,
- * where real concurrent workers can't safely share this process-wide state
- * — see `RenderOptions.disableDeParallelRouterTrial`), if it's already
- * failed (or hit the render cap) for this install, if the user already set
- * the env var themselves (never override an explicit choice — see
+ * afterward) — false unless the caller explicitly opted in (`enabled` —
+ * OPT-IN polarity, review: only the top-level CLI render command's own
+ * sequential call sites set it; programmatic `renderLocal` consumers get no
+ * trial by default because the mechanism's process-wide state is unsafe
+ * under concurrent invocation — see
+ * `RenderOptions.enableDeParallelRouterTrial`), if it's already failed (or
+ * hit the render cap) for this install, if the user already set the env var
+ * themselves (never override an explicit choice — see
  * `deParallelRouterTrialManagedByUs` for how a later `--batch` row
  * distinguishes that from our own earlier arm), or if telemetry isn't
  * actually recordable right now (see `isDeParallelRouterTrialBlocked`; no
  * point risking the experimental path if we can't even record the
  * resulting signal).
  */
-function maybeEnableDeParallelRouterTrial(quiet: boolean, disabled: boolean): boolean {
-  if (disabled) return false;
+function maybeEnableDeParallelRouterTrial(quiet: boolean, enabled: boolean): boolean {
+  if (!enabled) return false;
   // The in-process latch alone decides once it's set — short-circuit before
   // the disk read so post-fired batch rows don't pay a config read + parse +
   // shared-cache invalidation per row for an answer module state already

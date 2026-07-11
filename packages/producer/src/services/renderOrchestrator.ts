@@ -403,9 +403,14 @@ export interface RenderPerfSummary {
     verifyMinDb?: number;
     /** Init cost of capturing ground truth (ms). */
     verifyInitMs: number;
-    /** Self-verification tripped and the render re-ran via screenshot. */
+    /**
+     * SELF-VERIFICATION tripped (blank/PSNR) and the render re-ran via
+     * screenshot. Narrowed since the pinned-fallback retry was widened
+     * (review): OOM/generic-capture-error fallbacks report FALSE here —
+     * `fallbackReason` being set is the "any fallback fired" signal.
+     */
     selfVerifyFallback: boolean;
-    /** What tripped it: psnr | blank. */
+    /** What tripped the fallback retry: psnr | blank | oom | capture_error. */
     fallbackReason?: string;
     /** Blank-guard counters. */
     blankSuspects: number;

@@ -40,7 +40,15 @@ export interface RenderCaptureObservability {
   usePageSideCompositing?: boolean;
   hasHdrContent?: boolean;
   browserGpuMode?: string;
-  /** drawElement per-render self-verification tripped → whole render re-ran via screenshot. */
+  /**
+   * drawElement per-render SELF-VERIFICATION tripped (blank/PSNR) → whole
+   * render re-ran via screenshot. NARROWED semantics since the pinned-fallback
+   * retry was widened (review): OOM- and generic-capture-error-triggered
+   * fallbacks report FALSE here, with `deFallbackReason` ∈ {oom,
+   * capture_error}. The "any fallback fired" signal is `deFallbackReason`
+   * being set, NOT this flag — dashboards keyed on `de_self_verify_fallback =
+   * true` as any-fallback must migrate to `de_fallback_reason IS NOT NULL`.
+   */
   deSelfVerifyFallback?: boolean;
   /**
    * Why the capture-stage retry (self-verify OR the pinned-worker-count

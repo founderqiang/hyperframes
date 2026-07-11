@@ -539,6 +539,9 @@ describe("renderLocal — DE parallel-router CLI trial", () => {
     browserGpuMode: "software" as const,
     hdrMode: "auto" as const,
     quiet: true,
+    // The trial is OPT-IN (review): only the CLI's own sequential call sites
+    // set this. These tests simulate those call sites.
+    enableDeParallelRouterTrial: true,
   };
 
   it("enables the trial (sets the env var) on a fresh install with telemetry on", async () => {
@@ -749,21 +752,19 @@ describe("renderLocal — DE parallel-router CLI trial", () => {
     expect(process.env.HF_DE_PARALLEL_ROUTER).toBeUndefined();
   });
 
-  it("does not arm the trial when disableDeParallelRouterTrial is set (real batch concurrency, --batch-concurrency N>=2)", async () => {
-    // Concurrent renderLocal calls share one process-wide env var and one
-    // module-level flag — safe for sequential --batch rows (every other
-    // test in this block), not for genuinely concurrent ones (review
-    // finding). render.ts sets this option to true whenever batchConcurrency
-    // > 1; verify that gate actually prevents arming.
+  it("does not arm the trial for programmatic callers that never opted in (opt-in polarity — also covers --batch-concurrency N>=2, which leaves it unset)", async () => {
+    // The trial's process-wide env var and module-level flags are only safe
+    // under sequential invocation, so enableDeParallelRouterTrial is OPT-IN
+    // (review): a programmatic renderLocal consumer that doesn't know about
+    // the trial must get no trial. The CLI's concurrent-batch path relies on
+    // the same default by leaving the option unset.
     configState.disk = {
       telemetryEnabled: true,
       deParallelRouterTrialFired: false,
       telemetryNoticeShown: true,
     };
-    await renderLocal("/tmp/project", "/tmp/out.mp4", {
-      ...baseOptions,
-      disableDeParallelRouterTrial: true,
-    });
+    const { enableDeParallelRouterTrial: _omitted, ...programmaticOptions } = baseOptions;
+    await renderLocal("/tmp/project", "/tmp/out.mp4", programmaticOptions);
     expect(process.env.HF_DE_PARALLEL_ROUTER).toBeUndefined();
     expect(configState.writeConfigCalls).toHaveLength(0);
   });
