@@ -30,6 +30,7 @@ import {
   shouldDiscardProbeSessionForPageSideCompositing,
   resolveInversionRetryPlan,
   resolveParallelRouterRetryPlan,
+  shouldRetryViaPinnedFallback,
   shouldPreferParallelDrawElement,
   shouldPreferSingleWorkerDrawElement,
   shouldUseStreamingEncode,
@@ -1667,6 +1668,7 @@ describe("resolveInversionRetryPlan (self-verify retry rollback)", () => {
         cfg,
         outputFormat: "mp4",
         durationSeconds: 80,
+        isMemoryExhaustion: false,
       }),
     ).toBe(null);
     expect(
@@ -1676,6 +1678,7 @@ describe("resolveInversionRetryPlan (self-verify retry rollback)", () => {
         cfg,
         outputFormat: "mp4",
         durationSeconds: 80,
+        isMemoryExhaustion: false,
       }),
     ).toBe(null);
   });
@@ -1687,6 +1690,7 @@ describe("resolveInversionRetryPlan (self-verify retry rollback)", () => {
       cfg,
       outputFormat: "mp4",
       durationSeconds: 80,
+      isMemoryExhaustion: false,
     });
     expect(plan).toEqual({
       workerCount: 5,
@@ -1704,6 +1708,23 @@ describe("resolveInversionRetryPlan (self-verify retry rollback)", () => {
       cfg,
       outputFormat: "mp4",
       durationSeconds: 80,
+      isMemoryExhaustion: false,
+    });
+    expect(plan).toEqual({
+      workerCount: 1,
+      useStreamingEncode: true,
+      deWorkerInversion: "reverted",
+    });
+  });
+
+  it("drops to a single worker on OOM regardless of the pre-inversion count (the actual memory remedy)", () => {
+    const plan = resolveInversionRetryPlan({
+      deWorkerInversion: "inverted",
+      preInversionWorkerCount: 5,
+      cfg,
+      outputFormat: "mp4",
+      durationSeconds: 80,
+      isMemoryExhaustion: true,
     });
     expect(plan).toEqual({
       workerCount: 1,
@@ -1804,6 +1825,7 @@ describe("resolveParallelRouterRetryPlan (self-verify retry rollback)", () => {
         cfg,
         outputFormat: "mp4",
         durationSeconds: 80,
+        isMemoryExhaustion: false,
       }),
     ).toBe(null);
     expect(
@@ -1813,6 +1835,7 @@ describe("resolveParallelRouterRetryPlan (self-verify retry rollback)", () => {
         cfg,
         outputFormat: "mp4",
         durationSeconds: 80,
+        isMemoryExhaustion: false,
       }),
     ).toBe(null);
   });
@@ -1824,11 +1847,137 @@ describe("resolveParallelRouterRetryPlan (self-verify retry rollback)", () => {
       cfg,
       outputFormat: "mp4",
       durationSeconds: 80,
+      isMemoryExhaustion: false,
     });
     expect(plan).toEqual({
       workerCount: 5,
       useStreamingEncode: false,
       deParallelRouter: "reverted",
     });
+  });
+
+  it("drops to a single worker on OOM regardless of the pre-router count (the actual memory remedy)", () => {
+    const plan = resolveParallelRouterRetryPlan({
+      deParallelRouter: "routed",
+      preRouterWorkerCount: 5,
+      cfg,
+      outputFormat: "mp4",
+      durationSeconds: 80,
+      isMemoryExhaustion: true,
+    });
+    expect(plan).toEqual({
+      workerCount: 1,
+      useStreamingEncode: true,
+      deParallelRouter: "reverted",
+    });
+  });
+});
+
+describe("shouldRetryViaPinnedFallback (widen the self-verify retry to generic capture failures, including OOM)", () => {
+  it("always retries a drawElement self-verify failure, pinned or not", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: true,
+        isCancellation: false,
+        deWorkerInversion: undefined,
+        deParallelRouter: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("retries a generic capture failure when the router pinned the worker count", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: undefined,
+        deParallelRouter: "routed",
+      }),
+    ).toBe(true);
+  });
+
+  it("retries a generic capture failure when the inversion pinned the worker count", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: "inverted",
+        deParallelRouter: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not retry a generic capture failure when nothing pinned the worker count", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: undefined,
+        deParallelRouter: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("retries OOM too when the router pinned the worker count (fallback's Chrome processes are already dead by the time this runs, and the fallback is pooled/lighter than the pinned path)", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: undefined,
+        deParallelRouter: "routed",
+      }),
+    ).toBe(true);
+  });
+
+  it("retries OOM too when the inversion pinned the worker count", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: "inverted",
+        deParallelRouter: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not retry a generic failure on an already-reverted cohort (no pin left to retreat from)", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: false,
+        deWorkerInversion: "reverted",
+        deParallelRouter: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("never retries a cancellation, even on a pinned cohort — must propagate immediately, not detour through a fresh encoder spin-up", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: true,
+        deWorkerInversion: "inverted",
+        deParallelRouter: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: false,
+        isCancellation: true,
+        deWorkerInversion: undefined,
+        deParallelRouter: "routed",
+      }),
+    ).toBe(false);
+  });
+
+  it("cancellation wins even if the error also looks like a self-verify failure", () => {
+    expect(
+      shouldRetryViaPinnedFallback({
+        isVerifyError: true,
+        isCancellation: true,
+        deWorkerInversion: undefined,
+        deParallelRouter: undefined,
+      }),
+    ).toBe(false);
   });
 });

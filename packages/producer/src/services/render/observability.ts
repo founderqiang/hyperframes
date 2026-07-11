@@ -40,12 +40,34 @@ export interface RenderCaptureObservability {
   usePageSideCompositing?: boolean;
   hasHdrContent?: boolean;
   browserGpuMode?: string;
-  /** drawElement per-render self-verification tripped → whole render re-ran via screenshot. */
+  /**
+   * drawElement per-render SELF-VERIFICATION tripped (blank/PSNR) → whole
+   * render re-ran via screenshot. NARROWED semantics since the pinned-fallback
+   * retry was widened (review): OOM- and generic-capture-error-triggered
+   * fallbacks report FALSE here, with `deFallbackReason` ∈ {oom,
+   * capture_error}. The "any fallback fired" signal is `deFallbackReason`
+   * being set, NOT this flag — dashboards keyed on `de_self_verify_fallback =
+   * true` as any-fallback must migrate to `de_fallback_reason IS NOT NULL`.
+   */
   deSelfVerifyFallback?: boolean;
+  /**
+   * Why the capture-stage retry (self-verify OR the pinned-worker-count
+   * fallback) fired: "blank"/"psnr" for a real self-verify trip,
+   * "oom"/"capture_error" for the widened generic-failure retry. Set
+   * whenever a fallback is attempted, independent of whether that retry
+   * itself later succeeds — so a render that fails AFTER a fallback attempt
+   * (perfSummary never built) is still distinguishable in failure-path
+   * telemetry from one that never attempted any fallback.
+   */
+  deFallbackReason?: string;
   /** Auto-parallel inversion outcome: "inverted" (fired, held) | "reverted" (fired, self-verify retry rolled back). */
   deWorkerInversion?: "inverted" | "reverted";
+  /** Worker count the resolver would have used absent the inversion; undefined if it never fired. */
+  dePreInversionWorkers?: number;
   /** DE parallel-router outcome: "routed" (fired, held) | "reverted" (fired, self-verify retry rolled back). */
   deParallelRouter?: "routed" | "reverted";
+  /** Worker count the resolver would have used absent the router; undefined if it never fired. */
+  dePreRouterWorkers?: number;
   protocolTimeoutMs?: number;
   pageNavigationTimeoutMs?: number;
   playerReadyTimeoutMs?: number;

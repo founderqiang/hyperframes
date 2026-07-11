@@ -403,9 +403,14 @@ export interface RenderPerfSummary {
     verifyMinDb?: number;
     /** Init cost of capturing ground truth (ms). */
     verifyInitMs: number;
-    /** Self-verification tripped and the render re-ran via screenshot. */
+    /**
+     * SELF-VERIFICATION tripped (blank/PSNR) and the render re-ran via
+     * screenshot. Narrowed since the pinned-fallback retry was widened
+     * (review): OOM/generic-capture-error fallbacks report FALSE here —
+     * `fallbackReason` being set is the "any fallback fired" signal.
+     */
     selfVerifyFallback: boolean;
-    /** What tripped it: psnr | blank. */
+    /** What tripped the fallback retry: psnr | blank | oom | capture_error. */
     fallbackReason?: string;
     /** Blank-guard counters. */
     blankSuspects: number;
@@ -1048,6 +1053,14 @@ export function shouldPreferSingleWorkerDrawElement(args: {
  * drawElement and lost, so the re-render returns to the pre-inversion parallel
  * screenshot path (streaming re-resolved for that worker count — multi-worker
  * routes to the disk stage). Returns null when the render was not inverted.
+ *
+ * On OOM specifically, the retry drops to a single worker regardless of the
+ * pre-inversion count — an actual memory remedy (one Chrome page instead of
+ * N), not just a different capture mode at the same parallelism the host
+ * already choked on. The pre-inversion count can be higher than what the DE
+ * path used (calibration's own pick), so reusing it unmodified on an
+ * OOM-triggered retry would re-run at equal or greater parallelism than the
+ * failure, worsening the odds for this render and anything sharing the host.
  */
 export function resolveInversionRetryPlan(args: {
   deWorkerInversion: "inverted" | "reverted" | undefined;
@@ -1055,18 +1068,20 @@ export function resolveInversionRetryPlan(args: {
   cfg: Pick<EngineConfig, "enableStreamingEncode" | "streamingEncodeMaxDurationSeconds">;
   outputFormat: NonNullable<RenderConfig["format"]>;
   durationSeconds: number;
+  isMemoryExhaustion: boolean;
 }): {
   workerCount: number;
   useStreamingEncode: boolean;
   deWorkerInversion: "reverted";
 } | null {
   if (args.deWorkerInversion !== "inverted") return null;
+  const workerCount = args.isMemoryExhaustion ? 1 : args.preInversionWorkerCount;
   return {
-    workerCount: args.preInversionWorkerCount,
+    workerCount,
     useStreamingEncode: shouldUseStreamingEncode(
       args.cfg,
       args.outputFormat,
-      args.preInversionWorkerCount,
+      workerCount,
       args.durationSeconds,
     ),
     deWorkerInversion: "reverted",
@@ -1137,6 +1152,13 @@ export function shouldPreferParallelDrawElement(args: {
  * takes it as a direct argument, so a stale `true` would keep resolving to
  * the parallel-streaming shape on the retry instead of the well-tested
  * parallel-disk fallback. Returns null when the render was not router-routed.
+ *
+ * On OOM specifically, the retry drops to a single worker regardless of the
+ * pre-router count — see `resolveInversionRetryPlan`'s doc for why (the
+ * pre-router count is calibration's own pick and can exceed the router's
+ * pin, e.g. calibration wanting 5 while the router pinned to 3 — reusing it
+ * unmodified on an OOM retry would run the fallback at MORE parallelism than
+ * what just failed).
  */
 export function resolveParallelRouterRetryPlan(args: {
   deParallelRouter: "routed" | "reverted" | undefined;
@@ -1144,22 +1166,69 @@ export function resolveParallelRouterRetryPlan(args: {
   cfg: Pick<EngineConfig, "enableStreamingEncode" | "streamingEncodeMaxDurationSeconds">;
   outputFormat: NonNullable<RenderConfig["format"]>;
   durationSeconds: number;
+  isMemoryExhaustion: boolean;
 }): {
   workerCount: number;
   useStreamingEncode: boolean;
   deParallelRouter: "reverted";
 } | null {
   if (args.deParallelRouter !== "routed") return null;
+  const workerCount = args.isMemoryExhaustion ? 1 : args.preRouterWorkerCount;
   return {
-    workerCount: args.preRouterWorkerCount,
+    workerCount,
     useStreamingEncode: shouldUseStreamingEncode(
       args.cfg,
       args.outputFormat,
-      args.preRouterWorkerCount,
+      workerCount,
       args.durationSeconds,
     ),
     deParallelRouter: "reverted",
   };
+}
+
+/**
+ * Should a capture-stage error retry via the pinned-worker-count fallback
+ * (the same "well-tested parallel-disk / single-worker screenshot" path
+ * `resolveInversionRetryPlan`/`resolveParallelRouterRetryPlan` reroute to)
+ * instead of failing the render outright?
+ *
+ * True for the drawElement self-verify failures this retry path was
+ * originally built for (blank frame / PSNR breach), AND for any OTHER
+ * capture-stage failure (host-contention timeout, worker crash, OOM) while a
+ * worker count was PINNED by the inversion or router — those pin regardless
+ * of calibration, so a generic capture failure on that pinned count is
+ * exactly the scenario the pin itself introduced risk for.
+ *
+ * Includes OOM (previously excluded — see PR history): every worker's
+ * `executeWorkerTask` closes its capture session in a `finally` that awaits
+ * `closeCaptureSession` → `releaseBrowser`, which SIGKILLs the Chrome process
+ * via `forceReleaseBrowser` if a graceful `page.close()` hangs
+ * (`browserManager.ts`). `Promise.all` in `executeParallelCapture` waits for
+ * every worker's `finally` before this error is even thrown, so by the time
+ * we're deciding whether to retry, the failed attempt's Chrome processes are
+ * already gone — there's no lingering memory to retry into. And the
+ * fallback itself is structurally lighter than what OOM'd: parallel DE
+ * forces `enableBrowserPool: false` (N separate Chrome processes — required,
+ * not incidental, to avoid a co-tenant-page compositor-starvation bug), while
+ * the parallel-SS fallback uses the default pooled browser (one shared
+ * process). Retrying at a possibly-higher worker count is still fewer total
+ * Chrome processes than what just failed.
+ *
+ * Excludes cancellation (review): a user-initiated abort must propagate
+ * immediately, not detour through spawning a fresh encoder/capture session
+ * before the outer catch's `RenderCancelledError` branch ends the render —
+ * that would delay honoring "stop" with a pointless resource spin-up/
+ * tear-down cycle.
+ */
+export function shouldRetryViaPinnedFallback(args: {
+  isVerifyError: boolean;
+  isCancellation: boolean;
+  deWorkerInversion: "inverted" | "reverted" | undefined;
+  deParallelRouter: "routed" | "reverted" | undefined;
+}): boolean {
+  if (args.isCancellation) return false;
+  if (args.isVerifyError) return true;
+  return args.deWorkerInversion === "inverted" || args.deParallelRouter === "routed";
 }
 
 export function resolveCaptureForceScreenshotForPageSideCompositing(args: {
@@ -1970,7 +2039,18 @@ export async function executeRenderJob(
       );
       workerCount = 1;
     }
-    updateCaptureObservability({ workerCount, deWorkerInversion, deParallelRouter });
+    updateCaptureObservability({
+      workerCount,
+      deWorkerInversion,
+      deParallelRouter,
+      // Recorded here (not just in the success-path perfSummary) so a hard
+      // failure while routed/inverted still tells us what worker count the
+      // resolver would have used absent the experiment — the DE-router pin
+      // to 3 workers regardless of calibration is the leading suspect for
+      // any resource-pressure failure unique to this cohort.
+      dePreInversionWorkers: deWorkerInversion ? preRoutingWorkerCount : undefined,
+      dePreRouterWorkers: deParallelRouter ? preRoutingWorkerCount : undefined,
+    });
     observability.checkpoint("worker_resolution", "resolved", {
       workerCount,
       deWorkerInversion: deWorkerInversion ?? "none",
@@ -2264,26 +2344,53 @@ export async function executeRenderJob(
           streamingRes = await invokeStreaming();
         } catch (err) {
           // drawElement self-verification tripped (blank frame or PSNR breach
-          // vs the pre-injection ground truth). The whole render restarts on
-          // the screenshot path — slower, never wrong. The failed attempt's
-          // session was closed by the stage's finally; probeSession (if any)
-          // was consumed by it, so a fresh session spawns on retry.
-          if (!isDrawElementVerificationError(err)) throw err;
-          deSelfVerifyFallback = true;
-          deFallbackReason = /blank/i.test(err instanceof Error ? err.message : "")
-            ? "blank"
-            : "psnr";
-          log.warn("[Render] drawElement self-verification failed; re-rendering via screenshot", {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          // vs the pre-injection ground truth), OR — when the inversion/router
+          // pinned a fixed worker count regardless of calibration — any other
+          // capture-stage failure (host contention timeout, worker crash, OOM)
+          // on that pinned path. Both restart the whole render on the same
+          // tested screenshot/parallel-SS baseline: slower, never wrong. The
+          // failed attempt's session was closed by the stage's finally;
+          // probeSession (if any) was consumed by it, so a fresh session
+          // spawns on retry. See shouldRetryViaPinnedFallback for exactly
+          // which errors qualify.
+          const isVerifyError = isDrawElementVerificationError(err);
+          const isCancellation =
+            err instanceof RenderCancelledError || abortSignal?.aborted === true;
+          if (
+            !shouldRetryViaPinnedFallback({
+              isVerifyError,
+              isCancellation,
+              deWorkerInversion,
+              deParallelRouter,
+            })
+          )
+            throw err;
+          const isMemoryExhaustion = !isVerifyError && isMemoryExhaustionError(err);
+          deSelfVerifyFallback = isVerifyError;
+          deFallbackReason = isVerifyError
+            ? /blank/i.test(err instanceof Error ? err.message : "")
+              ? "blank"
+              : "psnr"
+            : isMemoryExhaustion
+              ? "oom"
+              : "capture_error";
+          log.warn(
+            isVerifyError
+              ? "[Render] drawElement self-verification failed; re-rendering via screenshot"
+              : "[Render] capture failed on the pinned worker count; re-rendering via screenshot",
+            { error: err instanceof Error ? err.message : String(err) },
+          );
           observability.checkpoint(
             "capture_streaming",
-            "drawElement self-verify failed; retrying with forceScreenshot",
+            isVerifyError
+              ? "drawElement self-verify failed; retrying with forceScreenshot"
+              : "capture failed on pinned worker count; retrying with forceScreenshot",
           );
           captureForceScreenshot = true;
           updateCaptureObservability({
             forceScreenshot: true,
-            deSelfVerifyFallback: true,
+            deSelfVerifyFallback,
+            deFallbackReason,
           });
           probeSession = null;
           // Must clear BEFORE resolveParallelRouterRetryPlan recomputes
@@ -2297,6 +2404,7 @@ export async function executeRenderJob(
             cfg,
             outputFormat,
             durationSeconds: job.duration,
+            isMemoryExhaustion,
           });
           const parallelRouterRetryPlan = resolveParallelRouterRetryPlan({
             deParallelRouter,
@@ -2304,6 +2412,7 @@ export async function executeRenderJob(
             cfg,
             outputFormat,
             durationSeconds: job.duration,
+            isMemoryExhaustion,
           });
           if (inversionRetryPlan) {
             // The inversion bet on drawElement and lost — re-render on the
