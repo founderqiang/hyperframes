@@ -77,6 +77,15 @@ function resizeCoalesceKey(changes: readonly TimelineGroupResizeChange[]): strin
   return `timeline-group-resize:${changes.map((change) => change.element.hfId ?? change.element.id).join(",")}`;
 }
 
+function toSdkTimingChanges<T extends { element: TimelineElement }>(
+  changes: readonly T[],
+  timingUpdate: (change: T) => { start: number; duration?: number },
+): Array<{ hfId: string; timingUpdate: { start: number; duration?: number } } | null> {
+  return changes.map((change) =>
+    change.element.hfId ? { hfId: change.element.hfId, timingUpdate: timingUpdate(change) } : null,
+  );
+}
+
 function resizeHasPlaybackStartAdjustment(change: TimelineGroupResizeChange): boolean {
   return (
     change.playbackStart != null ||
@@ -225,11 +234,7 @@ export function useTimelineGroupEditing({
         await options?.beforeTiming;
         const handledBySdk = await trySdkBatchPersist({
           changes,
-          sdkChanges: changes.map((change) =>
-            change.element.hfId
-              ? { hfId: change.element.hfId, timingUpdate: { start: change.start } }
-              : null,
-          ),
+          sdkChanges: toSdkTimingChanges(changes, (change) => ({ start: change.start })),
           eligible: changes.every((change) => change.track == null),
           needsExtension,
           label: "Move timeline clips",
@@ -314,14 +319,10 @@ export function useTimelineGroupEditing({
         await options?.beforeTiming;
         const handledBySdk = await trySdkBatchPersist({
           changes,
-          sdkChanges: changes.map((change) =>
-            change.element.hfId
-              ? {
-                  hfId: change.element.hfId,
-                  timingUpdate: { start: change.start, duration: change.duration },
-                }
-              : null,
-          ),
+          sdkChanges: toSdkTimingChanges(changes, (change) => ({
+            start: change.start,
+            duration: change.duration,
+          })),
           eligible: changes.every((change) => !resizeHasPlaybackStartAdjustment(change)),
           needsExtension,
           label: "Resize timeline clips",

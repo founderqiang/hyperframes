@@ -128,7 +128,10 @@ export function normalizeToZones(elements: TimelineElement[]): TimelineElement[]
     const lane = laneOf.get(keyOf(el));
     if (lane == null || lane === el.track) return el;
     changed = true;
-    return { ...el, track: lane };
+    // Record the source-file track the first time a clip is remapped so lane
+    // edits can persist in AUTHORED space (see TimelineElement.authoredTrack).
+    // Re-normalizing already-remapped elements must keep the original value.
+    return { ...el, track: lane, authoredTrack: el.authoredTrack ?? el.track };
   });
   return changed ? remapped : elements;
 }

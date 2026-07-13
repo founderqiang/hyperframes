@@ -29,6 +29,13 @@ export interface TimelineElement {
   start: number;
   duration: number;
   track: number;
+  /**
+   * The data-track-index as written in the source file, when it differs from
+   * the display lane in `track` (normalizeToZones packs sparse authored tracks
+   * onto contiguous display lanes). Lane edits must persist THIS space — writing
+   * a display-lane number into a sparse file re-targets the wrong track.
+   */
+  authoredTrack?: number;
   /** Resolved z-index for stacking-aware timeline ordering. */
   zIndex?: number;
   /** True when the effective z-index was authored inline or through CSS, not auto. */

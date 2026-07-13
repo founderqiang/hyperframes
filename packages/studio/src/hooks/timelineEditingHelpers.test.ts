@@ -139,6 +139,26 @@ describe("persistTimelineBatchEdit", () => {
     );
   }
 
+  function moveMember(
+    id: string,
+    start: number,
+    fromTrack: number,
+    toTrack: number,
+  ): PersistTimelineBatchChange {
+    return {
+      element: el({ id, tag: "video", domId: id, start, track: fromTrack }),
+      buildPatches: (original, target) =>
+        buildTimelineMoveTimingPatch(original, target, start, 5, toTrack),
+    };
+  }
+
+  async function runBatch(changes: PersistTimelineBatchChange[]) {
+    stubReadFileContent(SOURCE);
+    const writes: Array<[string, string]> = [];
+    await persistTimelineBatchEdit(batchInput(changes, writes));
+    return writes;
+  }
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -147,28 +167,12 @@ describe("persistTimelineBatchEdit", () => {
     // A track-insert renumber can include a member whose attributes already
     // hold the target values — its patch is string-identical. The batch must
     // skip it and still persist the members that DID change.
-    stubReadFileContent(SOURCE);
-    const writes: Array<[string, string]> = [];
-
-    await persistTimelineBatchEdit(
-      batchInput(
-        [
-          {
-            // no-op: data-start already "1", track already 0
-            element: el({ id: "a", tag: "video", domId: "a", start: 1, track: 0 }),
-            buildPatches: (original, target) =>
-              buildTimelineMoveTimingPatch(original, target, 1, 5, 0),
-          },
-          {
-            // real change: track 1 -> 2
-            element: el({ id: "b", tag: "video", domId: "b", start: 2, track: 1 }),
-            buildPatches: (original, target) =>
-              buildTimelineMoveTimingPatch(original, target, 2, 5, 2),
-          },
-        ],
-        writes,
-      ),
-    );
+    const writes = await runBatch([
+      // no-op: data-start already "1", track already 0
+      moveMember("a", 1, 0, 0),
+      // real change: track 1 -> 2
+      moveMember("b", 2, 1, 2),
+    ]);
 
     expect(writes).toHaveLength(1);
     expect(writes[0]![0]).toBe("index.html");
@@ -176,21 +180,7 @@ describe("persistTimelineBatchEdit", () => {
   });
 
   it("saves nothing when every member is a no-op", async () => {
-    stubReadFileContent(SOURCE);
-    const writes: Array<[string, string]> = [];
-
-    await persistTimelineBatchEdit(
-      batchInput(
-        [
-          {
-            element: el({ id: "a", tag: "video", domId: "a", start: 1, track: 0 }),
-            buildPatches: (original, target) =>
-              buildTimelineMoveTimingPatch(original, target, 1, 5, 0),
-          },
-        ],
-        writes,
-      ),
-    );
+    const writes = await runBatch([moveMember("a", 1, 0, 0)]);
 
     expect(writes).toHaveLength(0);
   });

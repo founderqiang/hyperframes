@@ -219,6 +219,26 @@ describe("commitDraggedClipMove", () => {
     expect(map.b).toBeUndefined(); // the other clip is NOT rewritten
   });
 
+  it("persists a lane change in AUTHORED track space when the file is sparse", () => {
+    // Discovery normalized authored tracks {1, 2} to display lanes {0, 1}
+    // (authoredTrack records the file value). Moving 'a' onto b's lane must
+    // write b's AUTHORED track (2) — writing the display lane (1) would target
+    // a's own authored row and silently no-op in the file.
+    const elements = [
+      { ...el("a", 0, 0, 3), authoredTrack: 1 },
+      { ...el("b", 1, 10, 3), authoredTrack: 2 },
+    ];
+    const { updateElement, onMoveElements } = runClipMove(
+      drag(elements[0], { previewStart: 20, previewTrack: 1, desiredTrack: 1 }),
+      { elements, trackOrder: [0, 1] },
+    );
+    // Store stays in display-lane space...
+    expect(updateElement).toHaveBeenCalledWith("a", { start: 20, track: 1 });
+    // ...while the persist is translated to the target lane's authored track.
+    const map = editMap(onMoveElements.mock.calls[0][0]);
+    expect(map.a).toEqual({ start: 20, track: 2 });
+  });
+
   it("multi-selection time-move shifts EVERY selected clip by the drag delta (atomic)", () => {
     const elements = [el("a", 0, 2, 3), el("b", 1, 10, 3), el("c", 2, 20, 3)];
     // Drag 'a' +5s on its own lane while {a, b} are marquee-selected.

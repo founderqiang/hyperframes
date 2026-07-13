@@ -13,6 +13,13 @@ type StartTrack = Pick<TimelineElement, "start" | "track">;
 export interface TimelineMoveEdit {
   element: TimelineElement;
   updates: StartTrack;
+  /**
+   * File-space track override for the persist. The store's `updates.track` is a
+   * DISPLAY lane; when the source file's numbering is sparse (authored tracks
+   * 1,2,... or gaps), the file write must target the lane's AUTHORED track or it
+   * silently re-targets the wrong row. Omitted → persist `updates.track` as-is.
+   */
+  persistTrack?: number;
 }
 
 export interface DragCommitDeps {
@@ -120,9 +127,16 @@ function persistMoveEdits(
     edits.map((edit) => keyOf(edit.element)),
   );
   for (const e of edits) updateElement(keyOf(e.element), e.updates);
+  // The store above gets DISPLAY lanes; the file below gets the authored-space
+  // track when one was resolved (see TimelineMoveEdit.persistTrack).
+  const persistEdits = edits.map((e) =>
+    e.persistTrack == null || e.persistTrack === e.updates.track
+      ? e
+      : { element: e.element, updates: { ...e.updates, track: e.persistTrack } },
+  );
   const persisted = onMoveElements
-    ? onMoveElements(edits, coalesceKey, operation)
-    : Promise.all(edits.map((e) => Promise.resolve(onMoveElement?.(e.element, e.updates))));
+    ? onMoveElements(persistEdits, coalesceKey, operation)
+    : Promise.all(persistEdits.map((e) => Promise.resolve(onMoveElement?.(e.element, e.updates))));
   return Promise.resolve(persisted).then(
     () => true,
     (error) => {
@@ -143,6 +157,24 @@ function persistMoveEdits(
  * then compacts it to a distinct integer lane between its neighbours, and the
  * clips at/below the insert shift down by one — the sanctioned index-renumber.
  */
+/**
+ * Translate a DISPLAY lane into the AUTHORED (source-file) track to persist.
+ * The lane's occupants all share one authored track by construction (lane =
+ * authored track after normalizeToZones; overlap sub-lane spills are display-only
+ * and never a lane-move target), so any occupant answers. A lane with no other
+ * occupant falls back to the lane value itself — for already-contiguous files the
+ * two spaces coincide, and edge-created lanes (min-1 / max+1) route through the
+ * insert path, never here.
+ */
+function authoredTrackForLane(
+  lane: number,
+  elements: TimelineElement[],
+  excludeKey: string,
+): number {
+  const occupant = elements.find((e) => e.track === lane && keyOf(e) !== excludeKey);
+  return occupant ? (occupant.authoredTrack ?? occupant.track) : lane;
+}
+
 function insertTrackValue(trackOrder: number[], insertRow: number): number {
   if (trackOrder.length === 0) return 0;
   if (insertRow <= 0) return trackOrder[0] - 0.5;
@@ -251,6 +283,7 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   const dragEdit: TimelineMoveEdit = {
     element: drag.element,
     updates: { start: drag.previewStart, track: drag.previewTrack },
+    persistTrack: authoredTrackForLane(drag.previewTrack, elements, dragKey),
   };
   const coalesceKey = isVertical ? `clip-lane-move:${laneChangeGestureSeq++}` : undefined;
 
@@ -265,9 +298,13 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
   // The drop-intent set for the z-sync: the dragged clip at its new lane, others
   // as-is. Reasoning on this (not a re-normalize) keeps the sync seeing the user's
   // move; computeStackingPatches only compares lanes relatively.
-  const candidate = elements.map((e) =>
-    keyOf(e) === dragKey ? { ...e, start: drag.previewStart, track: drag.previewTrack } : e,
-  );
+  const candidate = elements.map((e) => {
+    if (keyOf(e) === dragKey) return { ...e, start: drag.previewStart, track: drag.previewTrack };
+    // Selection members shift in time with the drag — the z-sync must reason on
+    // their POST-move overlap sets, same as the insert branch's candidate.
+    if (multi?.keys.has(keyOf(e))) return { ...e, start: multi.movedStart(e) };
+    return e;
+  });
   const multiKeys = multi ? multi.keys : null;
   void persistMoveEdits(edits, deps, coalesceKey, "lane-reorder").then((moved) => {
     if (moved && isVertical) {
@@ -292,6 +329,7 @@ export function commitDraggedClipMove(drag: DraggedClipState, deps: DragCommitDe
  * The whole affected set is persisted atomically (single undo), and the deliberate
  * vertical move syncs the dragged clip's stacking afterwards.
  */
+// fallow-ignore-next-line complexity
 function commitTrackInsert(
   drag: DraggedClipState,
   deps: DragCommitDeps,
@@ -314,12 +352,25 @@ function commitTrackInsert(
   // shifts the at/below clips down by one — the sanctioned +1 index renumber.
   const normalized = normalizeToZones(candidate);
   const bySrc = new Map(elements.map((e) => [keyOf(e), e]));
+  // The renumber is only correct as a WHOLE-SET write: skipping an unwritable
+  // clip whose lane shifts leaves its track colliding with a renumbered
+  // neighbour, and the next normalize merges the two lanes. If any shifted clip
+  // can't be written, refuse the insert instead of persisting a broken layout.
+  for (const norm of normalized) {
+    const src = bySrc.get(keyOf(norm));
+    if (src && !canMoveElement(src) && norm.track !== src.track) {
+      console.warn(
+        `[Timeline] Track insert refused: locked clip ${keyOf(src)} would need renumbering`,
+      );
+      return;
+    }
+  }
   const edits: TimelineMoveEdit[] = [];
   for (const norm of normalized) {
     const src = bySrc.get(keyOf(norm));
     if (!src) continue;
-    // Capabilities gate: never write a locked/implicit clip, even one only swept
-    // along by the renumber (not just a marquee member).
+    // Capabilities gate (unchanged-lane clips only reach here now): never write
+    // a locked/implicit clip.
     if (!canMoveElement(src)) continue;
     const start =
       keyOf(norm) === dragKey || multi?.keys.has(keyOf(norm))
@@ -391,6 +442,7 @@ function syncStackingForEdit(
     zIndex: readZIndex(el),
     isAudio: classifyZone(el) === "audio",
     domIndex,
+    stackingContextId: el.stackingContextId ?? null,
   }));
 
   const editedKeys = [dragKey];

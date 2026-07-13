@@ -160,23 +160,27 @@ export function useTimelineEditing({
 
       if (!startChanged) return reorderDone;
 
-      // needsExtension gates the SDK path (setTiming can't grow the root duration),
-      // so read the store BEFORE the readout sync below optimistically updates it.
+      // needsExtension gates the SDK path (setTiming can't grow the root duration), so read the store BEFORE the readout sync below optimistically updates it.
       const needsExtension = extendRootDurationIfNeeded(updates.start + element.duration);
-      // Optimistic duration readout: content-driven (grow AND shrink), read from
-      // the just-patched live DOM. See syncPreviewContentDuration.
+      // Optimistic duration readout: content-driven (grow AND shrink), from the just-patched live DOM. See syncPreviewContentDuration.
       syncPreviewContentDuration(previewIframeRef.current);
 
       const buildMovePatches: PersistTimelineEditInput["buildPatches"] = (original, target) => {
-        return buildTimelineMoveTimingPatch(original, target, updates.start, element.duration);
+        // Persist lane changes too — data-start-only writes let reload snap the lane back.
+        const track = updates.track !== element.track ? updates.track : undefined;
+        return buildTimelineMoveTimingPatch(
+          original,
+          target,
+          updates.start,
+          element.duration,
+          track,
+        );
       };
       const coalesceKey = `timeline-move:${element.hfId ?? element.id}`;
       const moveFallback = () =>
         enqueueEdit(element, "Move timeline clip", buildMovePatches, coalesceKey).then(() =>
-          // Soft-reload with the server's rewritten GSAP script instead of a full
-          // iframe reload — a timing-only move already patched the DOM + store, so
-          // swapping the script in place avoids the all-clips flash. Falls back to
-          // reloadPreview() when the soft path can't apply. (See timelineTimingSync.)
+          // Soft-reload with the server's rewritten GSAP script — the timing-only move already patched
+          // DOM + store, so swapping the script avoids the all-clips flash; falls back to reloadPreview().
           finishClipTimingFallback({
             iframe: previewIframeRef.current,
             reloadPreview,
@@ -249,11 +253,9 @@ export function useTimelineEditing({
         liveAttrs.push([liveAttr, formatTimelineAttributeNumber(updates.playbackStart)]);
       }
       patchIframeDomTiming(previewIframeRef.current, element, liveAttrs);
-      // needsExtension gates the SDK path (setTiming can't grow the root duration),
-      // so read the store BEFORE the readout sync below optimistically updates it.
+      // needsExtension gates the SDK path (setTiming can't grow the root duration), so read the store BEFORE the readout sync below optimistically updates it.
       const needsExtension = extendRootDurationIfNeeded(updates.start + updates.duration);
-      // Optimistic duration readout: content-driven (grow AND shrink), read from
-      // the just-patched live DOM. See syncPreviewContentDuration.
+      // Optimistic duration readout: content-driven (grow AND shrink), from the just-patched live DOM. See syncPreviewContentDuration.
       syncPreviewContentDuration(previewIframeRef.current);
       const targetPath = element.sourceFile || activeCompPath || "index.html";
       const buildResizePatches: PersistTimelineEditInput["buildPatches"] = (original, target) => {

@@ -95,14 +95,18 @@ export const TimelineRuler = memo(function TimelineRuler({
             background: theme.shellBackground,
           }}
         >
+          {/* Each 1px tick line is shifted -0.5px so its CENTER sits exactly on
+              t * pps — matching the playhead line, which is also centered on
+              GUTTER + t * pps (see getTimelinePlayheadLeft). Without the shift
+              a tick spans [x, x+1) and its center is half a pixel right. */}
           {minor.map((t) => (
-            <div key={`m-${t}`} className="absolute bottom-0" style={{ left: t * pps }}>
+            <div key={`m-${t}`} className="absolute bottom-0" style={{ left: t * pps - 0.5 }}>
               <div className="w-px h-2" style={{ background: theme.tickMinor }} />
             </div>
           ))}
 
           {major.map((t) => (
-            <div key={`M-${t}`} className="absolute top-0" style={{ left: t * pps }}>
+            <div key={`M-${t}`} className="absolute top-0" style={{ left: t * pps - 0.5 }}>
               <span
                 className="absolute font-mono tabular-nums leading-none whitespace-nowrap"
                 style={{

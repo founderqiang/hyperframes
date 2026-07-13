@@ -10,6 +10,8 @@ import {
   CLIP_Y,
   TRACKS_TOP_PAD,
   TRACKS_BOTTOM_PAD,
+  PLAYHEAD_HEAD_W,
+  getTimelinePlayheadLeft,
   getTimelineRowTop,
 } from "./timelineLayout";
 import { usePlayerStore } from "../store/playerStore";
@@ -262,12 +264,16 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
       )}
 
       {/* Playhead — hidden while dragging a beat so its guideline doesn't
-          track the scrub and clutter the beat being moved. */}
+          track the scrub and clutter the beat being moved. Explicit width +
+          the half-head offset baked into getTimelinePlayheadLeft keep the
+          inner 1px line's CENTER exactly on GUTTER + t * pps (the ruler
+          ticks' center), instead of relying on shrink-wrap sizing. */}
       <div
         ref={props.playheadRef}
         className="absolute top-0 bottom-0 pointer-events-none"
         style={{
-          left: `${GUTTER}px`,
+          left: `${getTimelinePlayheadLeft(0, 0)}px`,
+          width: PLAYHEAD_HEAD_W,
           zIndex: 100,
           display: beatDragging ? "none" : undefined,
         }}
