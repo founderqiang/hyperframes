@@ -7,12 +7,16 @@ import {
   buildTimelineAssetId,
   buildTimelineAssetInsertHtml,
   buildTimelineFileDropPlacements,
+  fitTimelineAssetGeometry,
   getTimelineAssetKind,
   insertTimelineAssetIntoSource,
-  resolveTimelineAssetInitialGeometry,
+  resolveTimelineAssetCompositionSize,
   resolveTimelineAssetSrc,
 } from "../utils/timelineAssetDrop";
+import { generateId } from "../utils/generateId";
 import { saveProjectFilesWithHistory } from "../utils/studioFileHistory";
+import { setCompositionDurationToContent } from "../utils/timelineAssetDrop";
+import { furthestClipEndFromSource } from "../player/lib/timelineElementHelpers";
 import {
   getTimelineElementLabel,
   collectHtmlIds,
@@ -23,15 +27,16 @@ import {
   buildPatchTarget,
   patchIframeDomTiming,
   persistTimelineEdit,
-  readFileContent,
-  foldedShiftGsapMutation,
-  foldedScaleGsapMutation,
   formatTimelineAttributeNumber,
-  finishTimelineTimingFallback,
   extendRootDurationIfNeeded,
   buildTimelineMoveTimingPatch,
   buildTimelineResizeTimingPatch,
 } from "./timelineEditingHelpers";
+import {
+  finishClipTimingFallback,
+  readFileContent,
+  syncPreviewContentDuration,
+} from "./timelineTimingSync";
 import type { PersistTimelineEditInput } from "./timelineEditingHelpers";
 import type { TimelineStackingReorderIntent } from "../player/components/timelineEditing";
 import {
@@ -155,36 +160,35 @@ export function useTimelineEditing({
 
       if (!startChanged) return reorderDone;
 
+      // needsExtension gates the SDK path (setTiming can't grow the root duration),
+      // so read the store BEFORE the readout sync below optimistically updates it.
+      const needsExtension = extendRootDurationIfNeeded(updates.start + element.duration);
+      // Optimistic duration readout: content-driven (grow AND shrink), read from
+      // the just-patched live DOM. See syncPreviewContentDuration.
+      syncPreviewContentDuration(previewIframeRef.current);
+
       const buildMovePatches: PersistTimelineEditInput["buildPatches"] = (original, target) => {
         return buildTimelineMoveTimingPatch(original, target, updates.start, element.duration);
       };
       const coalesceKey = `timeline-move:${element.hfId ?? element.id}`;
       const moveFallback = () =>
-        enqueueEdit(element, "Move timeline clip", buildMovePatches, coalesceKey).then(() => {
-          const pid = projectIdRef.current;
-          const delta = updates.start - element.start;
-          const domId = element.domId;
-          return finishTimelineTimingFallback({
+        enqueueEdit(element, "Move timeline clip", buildMovePatches, coalesceKey).then(() =>
+          // Soft-reload with the server's rewritten GSAP script instead of a full
+          // iframe reload — a timing-only move already patched the DOM + store, so
+          // swapping the script in place avoids the all-clips flash. Falls back to
+          // reloadPreview() when the soft path can't apply. (See timelineTimingSync.)
+          finishClipTimingFallback({
             iframe: previewIframeRef.current,
-            needsExtension,
-            rootDurationSeconds: updates.start + element.duration,
             reloadPreview,
-            gsapMutation:
-              delta !== 0 && domId && pid
-                ? foldedShiftGsapMutation({
-                    projectId: pid,
-                    targetPath,
-                    domId,
-                    delta,
-                    label: "Move timeline clip",
-                    coalesceKey,
-                    recordEdit,
-                  })
-                : undefined,
-            onGsapError: (err) => console.error("[Timeline] Failed to shift GSAP positions", err),
-          });
-        });
-      const needsExtension = extendRootDurationIfNeeded(updates.start + element.duration);
+            projectId: projectIdRef.current,
+            targetPath,
+            domId: element.domId,
+            label: "Move timeline clip",
+            coalesceKey,
+            recordEdit,
+            edit: { kind: "shift", delta: updates.start - element.start },
+          }),
+        );
       return reorderDone.then(() => {
         if (sdkSession && element.hfId && !needsExtension) {
           return sdkTimingPersist(
@@ -245,6 +249,12 @@ export function useTimelineEditing({
         liveAttrs.push([liveAttr, formatTimelineAttributeNumber(updates.playbackStart)]);
       }
       patchIframeDomTiming(previewIframeRef.current, element, liveAttrs);
+      // needsExtension gates the SDK path (setTiming can't grow the root duration),
+      // so read the store BEFORE the readout sync below optimistically updates it.
+      const needsExtension = extendRootDurationIfNeeded(updates.start + updates.duration);
+      // Optimistic duration readout: content-driven (grow AND shrink), read from
+      // the just-patched live DOM. See syncPreviewContentDuration.
+      syncPreviewContentDuration(previewIframeRef.current);
       const targetPath = element.sourceFile || activeCompPath || "index.html";
       const buildResizePatches: PersistTimelineEditInput["buildPatches"] = (original, target) => {
         return buildTimelineResizeTimingPatch(original, target, element, updates);
@@ -253,37 +263,28 @@ export function useTimelineEditing({
         updates.playbackStart != null ||
         (updates.start !== element.start && element.playbackStart != null);
       // Server-path fallback: after persisting the attr patch, scale GSAP tween
-      // positions/durations on the server. Extending edits can keep the iframe
-      // live unless a GSAP source rewrite needs a fresh run.
+      // positions/durations on the server, then soft-reload with the rewritten
+      // script (timing-only resize) — same no-flash path as move; full reload is
+      // the fallback.
       const coalesceKey = `timeline-resize:${element.hfId ?? element.id}`;
-      const timingChanged =
-        updates.start !== element.start || updates.duration !== element.duration;
-      const needsExtension = extendRootDurationIfNeeded(updates.start + updates.duration);
       const resizeFallback = () =>
-        enqueueEdit(element, "Resize timeline clip", buildResizePatches, coalesceKey).then(() => {
-          const pid = projectIdRef.current;
-          const domId = element.domId;
-          return finishTimelineTimingFallback({
+        enqueueEdit(element, "Resize timeline clip", buildResizePatches, coalesceKey).then(() =>
+          finishClipTimingFallback({
             iframe: previewIframeRef.current,
-            needsExtension,
-            rootDurationSeconds: updates.start + updates.duration,
             reloadPreview,
-            gsapMutation:
-              timingChanged && domId && pid
-                ? foldedScaleGsapMutation({
-                    projectId: pid,
-                    targetPath,
-                    domId,
-                    from: { start: element.start, duration: element.duration },
-                    to: { start: updates.start, duration: updates.duration },
-                    label: "Resize timeline clip",
-                    coalesceKey,
-                    recordEdit,
-                  })
-                : undefined,
-            onGsapError: (err) => console.error("[Timeline] Failed to scale GSAP positions", err),
-          });
-        });
+            projectId: projectIdRef.current,
+            targetPath,
+            domId: element.domId,
+            label: "Resize timeline clip",
+            coalesceKey,
+            recordEdit,
+            edit: {
+              kind: "scale",
+              from: { start: element.start, duration: element.duration },
+              to: { start: updates.start, duration: updates.duration },
+            },
+          }),
+        );
       if (sdkSession && element.hfId && !hasPbsAdjustment && !needsExtension) {
         return sdkTimingPersist(
           element.hfId,
@@ -384,8 +385,19 @@ export function useTimelineEditing({
           changed?: boolean;
           content?: string;
         };
-        const patchedContent =
+        const removedContent =
           typeof removeData.content === "string" ? removeData.content : originalContent;
+        // Content-driven duration: shrink the composition to the furthest
+        // remaining clip end, read from the post-removal SOURCE (raw
+        // data-duration), so deleting the last/longest clip removes trailing
+        // empty space. Measured from the source, not the store, whose
+        // durations are runtime-truncated.
+        const deleteContentEnd = furthestClipEndFromSource(removedContent);
+        const patchedContent = setCompositionDurationToContent(removedContent, deleteContentEnd);
+        // Optimistically reflect the shrunk length in the readout/seek bar.
+        if (deleteContentEnd > 0 && targetPath === (activeCompPath || "index.html")) {
+          usePlayerStore.getState().setDuration(deleteContentEnd);
+        }
 
         domEditSaveTimestampRef.current = Date.now();
         await saveProjectFilesWithHistory({
@@ -469,13 +481,17 @@ export function useTimelineEditing({
           originalContent,
           buildTimelineAssetInsertHtml({
             id: newId,
+            hfId: `hf-${generateId()}`,
             assetPath: resolvedAssetSrc,
             kind,
             start: normalizedStart,
             duration: normalizedDuration,
             track: placement.track,
             zIndex: newElementZIndex,
-            geometry: resolveTimelineAssetInitialGeometry(originalContent),
+            geometry: fitTimelineAssetGeometry(
+              null,
+              resolveTimelineAssetCompositionSize(originalContent),
+            ),
           }),
         );
 
@@ -532,17 +548,6 @@ export function useTimelineEditing({
       const placements = buildTimelineFileDropPlacements(
         placement ?? { start: 0, track: 0 },
         durations,
-        timelineElements
-          .filter(
-            (te) =>
-              (te.sourceFile || activeCompPath || "index.html") ===
-              (activeCompPath || "index.html"),
-          )
-          .map((te) => ({
-            start: te.start,
-            duration: te.duration,
-            track: te.track,
-          })),
       );
       for (const [index, assetPath] of uploaded.entries()) {
         await handleTimelineAssetDrop(
@@ -552,14 +557,7 @@ export function useTimelineEditing({
         );
       }
     },
-    [
-      activeCompPath,
-      handleTimelineAssetDrop,
-      timelineElements,
-      uploadProjectFiles,
-      isRecordingRef,
-      showToast,
-    ],
+    [handleTimelineAssetDrop, uploadProjectFiles, isRecordingRef, showToast],
   );
 
   const handleBlockedTimelineEdit = useCallback(

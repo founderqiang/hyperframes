@@ -20,6 +20,7 @@ import type { Rect } from "../../utils/marqueeGeometry";
 import { TimelineClip } from "./TimelineClip";
 import { TimelineLanes, type TimelineLaneBaseProps } from "./TimelineLanes";
 import { renderClipChildren } from "./timelineClipChildren";
+import { useTimelineRevealClip } from "./useTimelineRevealClip";
 
 interface TimelineCanvasProps extends TimelineLaneBaseProps {
   major: number[];
@@ -41,6 +42,8 @@ export const TimelineCanvas = memo(function TimelineCanvas(props: TimelineCanvas
   const { onResizeElement, onMoveElement, onToggleTrackHidden, onRazorSplit, onRazorSplitAll } =
     useTimelineEditContextOptional();
   const beatDragging = usePlayerStore((s) => s.beatDragging);
+  // Scroll a clip into view when the sidebar (asset card) requests a reveal.
+  useTimelineRevealClip(scrollRef);
   const draggedElement = draggedClip?.element ?? null;
   const activeDraggedElement =
     draggedClip?.started === true && draggedElement

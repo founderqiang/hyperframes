@@ -283,8 +283,9 @@ describe("commitDraggedClipMove", () => {
     const map = editMap(onMoveElements.mock.calls[0][0]);
     // Lanes are contiguous and distinct (no two overlapping clips share a lane).
     expect(new Set([map.a.track, map.b.track, map.c.track])).toEqual(new Set([0, 1, 2]));
-    // The z-aware normalization may reverse the authored lane numbers, but the
-    // insert must still leave three distinct, contiguous visual lanes.
+    expect(map.a.track).toBe(0); // above the insert → unchanged
+    expect(map.c.track).toBe(1); // dragged clip lands on the new lane
+    expect(map.b.track).toBe(2); // at/below the insert → +1 shift
   });
 
   describe("lane ↔ stacking sync", () => {
@@ -440,9 +441,9 @@ describe("commitDraggedClipMove", () => {
         drag(elements[2], { previewStart: 30, previewTrack: 1, insertRow: 0 }),
         [0, 1],
       );
-      // Non-overlapping clips retain their authored/z-derived ordering; a lane
-      // gesture cannot invent a DOM stacking relationship where none overlaps.
-      expect(lane.dragged).toBe(2);
+      expect(lane.dragged).toBe(0); // aimed at the very top
+      expect(lane.top).toBe(1);
+      expect(lane.mid).toBe(2);
     });
 
     it("BETWEEN-insert of a non-overlapping clip lands it between its neighbours", async () => {
@@ -453,8 +454,8 @@ describe("commitDraggedClipMove", () => {
         [0, 1, 2],
       );
       expect(lane.a).toBe(0);
-      expect(lane.b).toBe(1);
-      expect(lane.x).toBe(2);
+      expect(lane.x).toBe(1); // between a and b, as aimed
+      expect(lane.b).toBe(2);
     });
 
     it("TOP-insert clears a NON-overlapping clip that currently tops the timeline", async () => {
@@ -466,7 +467,7 @@ describe("commitDraggedClipMove", () => {
         drag(elements[2], { previewStart: 10, previewTrack: 2, insertRow: 0 }),
         [0, 1, 2],
       );
-      expect(lane.X).toBe(1); // X reorders against overlapping M, not disjoint T
+      expect(lane.X).toBe(0); // aimed top, cleared the non-overlapping T
     });
 
     it("dragging X among overlapping neighbours preserves the RELATIVE order of the others (symptom 2)", async () => {

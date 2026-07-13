@@ -2,8 +2,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   applyTimelineStackingReorder,
+  buildTimelineMoveTimingPatch,
   deleteSelectedKeyframes,
   extendRootDurationIfNeeded,
+  persistTimelineBatchEdit,
+  type PersistTimelineBatchChange,
 } from "./timelineEditingHelpers";
 import type { TimelineElement } from "../player/store/playerStore";
 import { usePlayerStore } from "../player/store/playerStore";
@@ -105,6 +108,91 @@ describe("extendRootDurationIfNeeded", () => {
     expect(extendRootDurationIfNeeded(5)).toBe(false);
     expect(extendRootDurationIfNeeded(3)).toBe(false);
     expect(usePlayerStore.getState().duration).toBe(5);
+  });
+});
+
+describe("persistTimelineBatchEdit", () => {
+  const SOURCE = `<div id="root"><video id="a" class="clip" data-start="1" data-track-index="0"></video><video id="b" class="clip" data-start="2" data-track-index="1"></video></div>`;
+
+  function batchInput(changes: PersistTimelineBatchChange[], writes: Array<[string, string]>) {
+    return {
+      projectId: "p1",
+      activeCompPath: "index.html",
+      label: "Move timeline clips",
+      changes,
+      writeProjectFile: async (path: string, content: string) => {
+        writes.push([path, content]);
+      },
+      recordEdit: async () => {},
+      domEditSaveTimestampRef: { current: 0 },
+      pendingTimelineEditPathRef: { current: new Set<string>() },
+    };
+  }
+
+  function stubReadFileContent(content: string) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ content }),
+      })),
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("skips no-op members instead of aborting the batch (track-insert renumber)", async () => {
+    // A track-insert renumber can include a member whose attributes already
+    // hold the target values — its patch is string-identical. The batch must
+    // skip it and still persist the members that DID change.
+    stubReadFileContent(SOURCE);
+    const writes: Array<[string, string]> = [];
+
+    await persistTimelineBatchEdit(
+      batchInput(
+        [
+          {
+            // no-op: data-start already "1", track already 0
+            element: el({ id: "a", tag: "video", domId: "a", start: 1, track: 0 }),
+            buildPatches: (original, target) =>
+              buildTimelineMoveTimingPatch(original, target, 1, 5, 0),
+          },
+          {
+            // real change: track 1 -> 2
+            element: el({ id: "b", tag: "video", domId: "b", start: 2, track: 1 }),
+            buildPatches: (original, target) =>
+              buildTimelineMoveTimingPatch(original, target, 2, 5, 2),
+          },
+        ],
+        writes,
+      ),
+    );
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]![0]).toBe("index.html");
+    expect(writes[0]![1]).toContain('id="b" class="clip" data-start="2" data-track-index="2"');
+  });
+
+  it("saves nothing when every member is a no-op", async () => {
+    stubReadFileContent(SOURCE);
+    const writes: Array<[string, string]> = [];
+
+    await persistTimelineBatchEdit(
+      batchInput(
+        [
+          {
+            element: el({ id: "a", tag: "video", domId: "a", start: 1, track: 0 }),
+            buildPatches: (original, target) =>
+              buildTimelineMoveTimingPatch(original, target, 1, 5, 0),
+          },
+        ],
+        writes,
+      ),
+    );
+
+    expect(writes).toHaveLength(0);
   });
 });
 

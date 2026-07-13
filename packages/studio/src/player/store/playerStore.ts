@@ -153,6 +153,9 @@ interface PlayerState {
   /** Timeline magnet toggle — when false, clip drags/trims/drops never snap. */
   timelineSnapEnabled: boolean;
   setTimelineSnapEnabled: (enabled: boolean) => void;
+  /** Transport + ruler readout: timecode ("time") or frame number ("frame"). */
+  timeDisplayMode: "time" | "frame";
+  setTimeDisplayMode: (mode: "time" | "frame") => void;
   /**
    * Pin the timeline zoom to its current visual scale before a duration-changing
    * edit, so a subsequent duration change (which recomputes fit-pps) stops
@@ -209,6 +212,16 @@ interface PlayerState {
   requestedSeekTime: number | null;
   requestSeek: (time: number) => void;
   clearSeekRequest: () => void;
+
+  /**
+   * Request the timeline to scroll a clip into view (e.g. clicking an
+   * already-added asset card in the sidebar). Consumed and cleared by
+   * useTimelineRevealClip. The nonce makes repeat requests for the same
+   * clip observable so a second click re-reveals after the user scrolls away.
+   */
+  clipRevealRequest: { elementId: string; nonce: number } | null;
+  requestClipReveal: (elementId: string) => void;
+  clearClipRevealRequest: () => void;
 
   lintFindingsByElement: Map<string, { count: number; messages: string[] }>;
   setLintFindingsByElement: (map: Map<string, { count: number; messages: string[] }>) => void;
@@ -341,6 +354,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   requestSeek: (time) => set({ requestedSeekTime: time }),
   clearSeekRequest: () => set({ requestedSeekTime: null }),
 
+  clipRevealRequest: null,
+  requestClipReveal: (elementId) =>
+    set((s) => ({
+      clipRevealRequest: { elementId, nonce: (s.clipRevealRequest?.nonce ?? 0) + 1 },
+    })),
+  clearClipRevealRequest: () => set({ clipRevealRequest: null }),
+
   lintFindingsByElement: new Map(),
   setLintFindingsByElement: (map) => set({ lintFindingsByElement: map }),
 
@@ -415,6 +435,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setTimelineSnapEnabled: (enabled) => {
     writeStudioUiPreferences({ timelineSnapEnabled: enabled });
     set({ timelineSnapEnabled: enabled });
+  },
+  timeDisplayMode: readStudioUiPreferences().timeDisplayMode ?? "time",
+  setTimeDisplayMode: (mode) => {
+    writeStudioUiPreferences({ timeDisplayMode: mode });
+    set({ timeDisplayMode: mode });
   },
   pinTimelineZoom: (currentPixelsPerSecond, fitPixelsPerSecond) =>
     set((s) => {
@@ -522,6 +547,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       activeTool: "select",
       selectedKeyframes: new Set(),
       selectedElementIds: new Set(),
+      clipRevealRequest: null,
       keyframeCache: new Map(),
       beatAnalysis: null,
       beatEdits: null,

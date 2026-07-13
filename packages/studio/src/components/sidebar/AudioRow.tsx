@@ -43,6 +43,7 @@ export function AudioRow({
   // CapCut-style click behavior: drag-threshold gate.
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const setSelectedElementId = usePlayerStore((s) => s.setSelectedElementId);
+  const requestClipReveal = usePlayerStore((s) => s.requestClipReveal);
   const elements = usePlayerStore((s) => s.elements);
   const setPreviewAsset = useAssetPreviewStore((s) => s.setPreviewAsset);
 
@@ -59,14 +60,17 @@ export function AudioRow({
       if (used) {
         const clip = findClipForAsset(elements, asset);
         if (clip) {
-          setSelectedElementId(clip.key ?? clip.id);
+          const clipKey = clip.key ?? clip.id;
+          setSelectedElementId(clipKey);
+          // Scroll the timeline so the selected clip is actually visible.
+          requestClipReveal(clipKey);
           return;
         }
       }
       // Not added → preview overlay (audio player)
       setPreviewAsset(asset, projectId);
     },
-    [used, elements, asset, projectId, setSelectedElementId, setPreviewAsset],
+    [used, elements, asset, projectId, setSelectedElementId, requestClipReveal, setPreviewAsset],
   );
 
   useEffect(() => {
