@@ -112,9 +112,30 @@ async function patchElementBatch(projectId: string, batch: DomEditPatchBatch) {
   return {
     sourceFile: batch.sourceFile,
     changed: result.changed === true,
+    // Skip-reload safety: the persist is only provably in sync with the live
+    // DOM when the server confirmed EVERY patch target matched. A missing /
+    // short matched[] is treated as unknown (false) so the caller falls back
+    // to reloading rather than silently diverging from disk.
+    allMatched:
+      Array.isArray(result.matched) &&
+      result.matched.length === batch.patches.length &&
+      result.matched.every(Boolean),
     before,
     after: typeof result.content === "string" ? result.content : before,
   };
+}
+
+/**
+ * A batch is reload-skippable only when it is style-only: every operation is an
+ * `inline-style` write. The z-reorder commit applies those exact styles to the
+ * live iframe DOM synchronously, so persisting them adds nothing the preview
+ * doesn't already show. Any other op type (attribute / text-content / …) can
+ * have server-side semantics the live DOM hasn't mirrored — reload for those.
+ */
+function batchesAreInlineStyleOnly(batches: DomEditPatchBatch[]): boolean {
+  return batches.every((batch) =>
+    batch.patches.every((patch) => patch.operations.every((op) => op.type === "inline-style")),
+  );
 }
 
 export interface UseDomEditCommitsParams {
@@ -390,7 +411,18 @@ export function useDomEditCommits({
           files,
         });
         forceReloadSdkSession?.();
-        reloadPreview();
+        // A z-only reorder already applied its inline styles to the live iframe
+        // DOM (and the store) synchronously, so remounting the iframe here only
+        // produces a visible blink. Skip the reload when the caller asked for it
+        // AND the persist is provably in sync: style-only ops, every target
+        // matched. Any unmatched patch means the live DOM now shows state disk
+        // doesn't hold — reload so the preview reconverges. (The SSE/file-watcher
+        // reload is independently suppressed by domEditSaveTimestampRef above.)
+        const skipSafe =
+          options.skipReload === true &&
+          batchesAreInlineStyleOnly(batches) &&
+          results.every((result) => result.allMatched);
+        if (!skipSafe) reloadPreview();
       }).catch((error) => {
         const alreadyToasted =
           (error instanceof StudioSaveHttpError ||

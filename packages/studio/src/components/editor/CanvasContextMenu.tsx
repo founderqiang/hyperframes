@@ -29,6 +29,7 @@ import type { DomEditSelection } from "./domEditing";
 import { useContextMenuDismiss } from "../../hooks/useContextMenuDismiss";
 import {
   isZOrderActionEnabled,
+  resolveCrossedNeighbor,
   resolveZOrderChange,
   type ZOrderAction,
   type ZOrderPatch,
@@ -51,6 +52,13 @@ interface CanvasContextMenuProps {
    * (see module-level wiring comment).
    */
   onApplyZIndex?: (patches: ZOrderPatch[], action: ZOrderAction) => void;
+  /**
+   * Called after a successful bring-forward / send-backward with the sibling
+   * the target stepped over (resolved from the SAME pre-mutation state as the
+   * patches), so the host can flash a highlight on it in the studio overlay.
+   * Never called for front/back or no-op actions.
+   */
+  onZOrderCrossed?: (crossed: HTMLElement, action: ZOrderAction) => void;
   /**
    * Delete the selected element. Wire to handleDomEditElementDelete from
    * useDomEditActionsContext — same path as the Delete/Backspace hotkey.
@@ -75,6 +83,7 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
   selection,
   onClose,
   onApplyZIndex,
+  onZOrderCrossed,
   onDelete,
 }: CanvasContextMenuProps) {
   const menuRef = useContextMenuDismiss(onClose);
@@ -103,12 +112,16 @@ export const CanvasContextMenu = memo(function CanvasContextMenu({
     if (!onApplyZIndex) return;
     const patches = resolveZOrderChange(el, action);
     if (patches === null) return;
+    // Resolve the crossed neighbor BEFORE the commit path mutates live styles —
+    // both resolvers must read the same pre-change render order.
+    const crossed = onZOrderCrossed ? resolveCrossedNeighbor(el, action) : null;
     // Do NOT pre-apply styles here: handleDomZIndexReorderCommit writes the
     // live z-index (and injects position:relative for static elements) in the
     // same synchronous flow, so feedback is still instant — and it must read
     // the PRE-change styles itself, both to capture true rollback values and
     // to detect a static position that needs persisting.
     onApplyZIndex(patches, action);
+    if (crossed && onZOrderCrossed) onZOrderCrossed(crossed, action);
     onClose();
   }
 

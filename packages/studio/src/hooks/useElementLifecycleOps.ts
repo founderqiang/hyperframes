@@ -217,12 +217,20 @@ export function useElementLifecycleOps({
       }));
       // Resolves once every source-file batch is persisted so a same-file timing write
       // can be ordered after it (see applyTimelineStackingReorder callers).
-      return commitDomEditPatchBatches(batches, { label: "Reorder layers", coalesceKey }).catch(
-        (error) => {
-          for (const rollback of rollbacks) rollback();
-          throw error;
-        },
-      );
+      //
+      // skipReload: the live iframe DOM and the player store already hold the
+      // final z state (applied synchronously above), and the persisted patch is
+      // inline-style-only — a full iframe remount would only blink the preview.
+      // commitDomEditPatchBatches still falls back to reloading whenever the
+      // server reports an unmatched patch target (live DOM ≠ disk).
+      return commitDomEditPatchBatches(batches, {
+        label: "Reorder layers",
+        coalesceKey,
+        skipReload: true,
+      }).catch((error) => {
+        for (const rollback of rollbacks) rollback();
+        throw error;
+      });
     },
     [commitDomEditPatchBatches, onReorderShadow],
   );

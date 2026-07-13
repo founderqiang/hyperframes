@@ -29,6 +29,7 @@ afterEach(() => {
 function renderMenu(props: {
   selection: DomEditSelection;
   onApplyZIndex?: (patches: ZOrderPatch[], action: ZOrderAction) => void;
+  onZOrderCrossed?: (crossed: HTMLElement, action: ZOrderAction) => void;
   onDelete?: (selection: DomEditSelection) => void;
 }) {
   root = createRoot(host);
@@ -40,6 +41,7 @@ function renderMenu(props: {
         selection: props.selection,
         onClose: () => {},
         onApplyZIndex: props.onApplyZIndex,
+        onZOrderCrossed: props.onZOrderCrossed,
         onDelete: props.onDelete,
       }),
     );
@@ -222,5 +224,43 @@ describe("CanvasContextMenu — z-action commit path", () => {
     expect(captured[0]?.options.coalesceKey).toContain("bring-forward");
 
     cleanup();
+  });
+
+  it("reports the crossed sibling to onZOrderCrossed for a forward step (resolved pre-mutation)", async () => {
+    // target (earlier in DOM) and other are tied — bring-forward steps over
+    // `other`, and the flash callback must receive exactly that element, after
+    // onApplyZIndex ran (call order lets the host measure post-commit rects).
+    const { target, other } = makeStaticFamily();
+    const selection = makeSelection("Target", target);
+    const calls: Array<{ kind: string; crossed?: HTMLElement }> = [];
+
+    renderMenu({
+      selection,
+      onApplyZIndex: () => calls.push({ kind: "apply" }),
+      onZOrderCrossed: (crossed, action) => {
+        expect(action).toBe("bring-forward");
+        calls.push({ kind: "crossed", crossed });
+      },
+    });
+
+    await act(async () => pressMenuItem("Bring forward"));
+
+    expect(calls.map((c) => c.kind)).toEqual(["apply", "crossed"]);
+    expect(calls[1]?.crossed).toBe(other);
+  });
+
+  it("does not call onZOrderCrossed for bring-to-front", async () => {
+    const { target } = makeStaticFamily();
+    const onZOrderCrossed = vi.fn();
+
+    renderMenu({
+      selection: makeSelection("Target", target),
+      onApplyZIndex: vi.fn(),
+      onZOrderCrossed,
+    });
+
+    await act(async () => pressMenuItem("Bring to front"));
+
+    expect(onZOrderCrossed).not.toHaveBeenCalled();
   });
 });

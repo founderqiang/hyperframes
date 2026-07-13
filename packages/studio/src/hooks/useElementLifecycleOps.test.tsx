@@ -18,6 +18,7 @@ afterEach(() => {
 interface BatchOptions {
   label: string;
   coalesceKey: string;
+  skipReload?: boolean;
 }
 
 interface CapturedBatchCall {
@@ -106,6 +107,25 @@ describe("useElementLifecycleOps — z-index reorder payload", () => {
     expect(target?.id).not.toBeNull();
     // The element stays addressable via hfId (and selector) instead.
     expect(target?.hfId).toBe("hf-card");
+
+    act(() => root.unmount());
+  });
+
+  it("requests skipReload on every z-reorder persist (live DOM already final)", async () => {
+    // The commit applies the z-index (and any injected position) to the live
+    // iframe DOM and the store synchronously, so the persisted style-only patch
+    // adds nothing the preview doesn't already show — the batch commit is asked
+    // to skip the iframe remount. commitDomEditPatchBatches still falls back to
+    // reloading when the server can't confirm every patch target matched.
+    const el = document.createElement("div");
+    el.id = "clip-z";
+
+    const { captured, root } = await runReorderCommit(el, [
+      { element: el, zIndex: 4, id: "clip-z", sourceFile: "index.html" },
+    ]);
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]?.options.skipReload).toBe(true);
 
     act(() => root.unmount());
   });

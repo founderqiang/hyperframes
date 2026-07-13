@@ -265,7 +265,7 @@ describe("useDomEditCommits z-index reorder persistence", () => {
     document.body.replaceChildren();
   });
 
-  it("persists an N-element reorder with one batch POST, one undo entry, and one reload", async () => {
+  it("persists an N-element reorder with one batch POST, one undo entry, and NO iframe reload", async () => {
     const original =
       '<div id="a" style="z-index: 1"></div><div id="b" style="z-index: 2"></div><div id="c" style="z-index: 3"></div>';
     const after =
@@ -338,6 +338,41 @@ describe("useDomEditCommits z-index reorder persistence", () => {
         coalesceKey: "z-reorder:test",
         files: { "index.html": { before: original, after } },
       });
+      // FIX: a z-only reorder must NOT remount the preview iframe ("the blink").
+      // The live DOM + store already hold the final state and the server matched
+      // every style-only patch, so the reload is provably redundant.
+      expect(rendered.reloadPreview).not.toHaveBeenCalled();
+    } finally {
+      rendered.cleanup();
+    }
+  });
+
+  it("falls back to reloading when the server response omits matched[]", async () => {
+    // Without a matched[] confirmation the persist can't be proven in sync with
+    // the live DOM — the skip-reload path must not engage.
+    const original = '<div id="a" style="z-index: 1"></div>';
+    const after = '<div id="a" style="z-index: 2"></div>';
+    const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]): Promise<Response> => {
+      const url = requestUrl(input);
+      if (url.includes("/api/projects/p1/files/")) return jsonResponse({ content: original });
+      if (url.includes("/file-mutations/patch-elements-batch/")) {
+        return jsonResponse({ ok: true, changed: true, content: after });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { iframe, element } = createPreviewElement();
+    element.id = "a";
+    const rendered = renderDomEditCommits(createSelection(element), iframe);
+
+    try {
+      await act(async () => {
+        await rendered.hook.handleDomZIndexReorderCommit([
+          { element, zIndex: 2, id: "a", sourceFile: "index.html" },
+        ]);
+      });
+
+      expect(rendered.recordEdit).toHaveBeenCalledTimes(1);
       expect(rendered.reloadPreview).toHaveBeenCalledTimes(1);
     } finally {
       rendered.cleanup();
@@ -347,7 +382,9 @@ describe("useDomEditCommits z-index reorder persistence", () => {
   it("warns and reports telemetry for unmatched batch patches without throwing", async () => {
     // The server reports per-patch matched[]: #b was not found in the source.
     // The matched subset persisted, so the commit must complete (no rollback of
-    // applied state) while surfacing the partial failure.
+    // applied state) while surfacing the partial failure. An unmatched target
+    // also means the live DOM shows z-order the disk lacks, so the skip-reload
+    // path must NOT engage — the reload reconverges the preview with disk.
     const original = '<div id="a" style="z-index: 1"></div>';
     const after = '<div id="a" style="z-index: 2"></div>';
     const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]): Promise<Response> => {
