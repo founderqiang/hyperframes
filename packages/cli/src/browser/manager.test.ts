@@ -411,6 +411,12 @@ describe("findBrowser — cache resolution", () => {
   });
 
   it("withInstallLock reports progress while waiting instead of staying silent", async () => {
+    // Fake timers freeze Date.now() so the lock mtime stays non-stale across
+    // the dynamic import that follows — without them, a slow import beat could
+    // push wall-clock past staleMs before `withInstallLock` even starts polling,
+    // firing the immediate-stale short-circuit and skipping the wait-notice
+    // branch this test exists to observe.
+    vi.useFakeTimers();
     const paths = installFsMocks({
       existing: new Set([CACHE_ROOT, HF_LOCK]),
       initialMtimeMs: Date.now(),
@@ -418,8 +424,17 @@ describe("findBrowser — cache resolution", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const { withInstallLock } = await import("./manager.js");
-    await withInstallLock(async () => "done", { ...TEST_LOCK_TIMINGS, waitNoticeMs: 20 });
+    const acquisition = withInstallLock(async () => "done", {
+      ...TEST_LOCK_TIMINGS,
+      waitNoticeMs: 20,
+    });
 
+    // Advance past waitNoticeMs (fires the "Waiting for…" warn), then past
+    // staleMs (lets `reclaimStaleInstallLock` clear the held lock so the
+    // acquisition resolves).
+    await vi.advanceTimersByTimeAsync(TEST_LOCK_TIMINGS.staleMs + TEST_LOCK_TIMINGS.pollMs * 5);
+
+    await expect(acquisition).resolves.toBe("done");
     expect(paths.has(HF_LOCK)).toBe(false);
     expect(
       warnSpy.mock.calls.some(([msg]) =>
