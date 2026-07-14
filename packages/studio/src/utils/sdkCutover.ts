@@ -82,6 +82,20 @@ function wrongCompositionFile(deps: CutoverDeps, targetPath: string): boolean {
   return deps.compositionPath != null && targetPath !== deps.compositionPath;
 }
 
+/**
+ * Reader for the animation-resolver tripwire's disk-truth check: on an
+ * animationId miss it re-parses the CURRENT file to distinguish a stale
+ * session (panel ids re-derive from disk every render; session ids date from
+ * the last reload) from a genuine resolver divergence.
+ */
+function gsapReadSource(
+  deps: CutoverDeps,
+  targetPath: string,
+): (() => Promise<string | undefined>) | undefined {
+  const read = deps.readProjectFile;
+  return read ? () => read(targetPath) : undefined;
+}
+
 interface CutoverOptions {
   label?: string;
   coalesceKey?: string;
@@ -271,10 +285,11 @@ export function sdkGsapTweenPersist(
       gsapSrc ? () => gsapSrc(targetPath) : undefined,
     );
   } else {
-    recordAnimationResolverParity(
+    void recordAnimationResolverParity(
       sdkSession,
       op.animationId,
       op.kind === "set" ? "setGsapTween" : "removeGsapTween",
+      gsapReadSource(deps, targetPath),
     );
   }
   // Leading dark-launch gate so flag-off does no SDK touch (getElement) at all —
@@ -309,7 +324,12 @@ async function dispatchGsapOpAndPersist(
   // Resolver tripwire — runs BEFORE the cutover gate (decoupled): records when
   // the SDK can't resolve the animationId the server GSAP path is addressing.
   if (resolverTarget) {
-    recordAnimationResolverParity(sdkSession, resolverTarget.animationId, resolverTarget.opLabel);
+    void recordAnimationResolverParity(
+      sdkSession,
+      resolverTarget.animationId,
+      resolverTarget.opLabel,
+      gsapReadSource(deps, targetPath),
+    );
   }
   // Dark-launch gate (shared chokepoint for every GSAP-op cutover persist):
   // flag OFF → return false → caller falls back to the legacy server path.

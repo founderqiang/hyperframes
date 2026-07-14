@@ -15,11 +15,12 @@
  * Telemetry-only — never writes to disk, never affects the user-visible edit.
  */
 
+import { openComposition } from "@hyperframes/sdk";
 import type { Composition, JsonPatchOp } from "@hyperframes/sdk";
 import type { PatchOperation } from "./sourcePatcher";
 import { STUDIO_SDK_RESOLVER_SHADOW_ENABLED } from "../components/editor/manualEditingAvailability";
 import { patchOpsToSdkEditOps } from "./sdkOpMapping";
-import { trackStudioEvent, flushViaBeacon } from "./studioTelemetry";
+import { trackStudioEvent } from "./studioTelemetry";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -234,95 +235,14 @@ export function sdkResolverShadowCheck(
   }
 }
 
-// ─── Attempt counter (denominator for the soak gate) ──────────────────────────
-//
-// The three emit functions below only fire a PostHog event on divergence —
-// parity is silent, by design, to avoid firing on every edit. That leaves no
-// way to compute a rate (divergences / attempts): we can count failures but
-// never attempts. This counter tracks attempts in memory and rolls them up
-// into ONE low-frequency event instead of firing per-attempt, which would
-// recreate the exact chattiness problem the divergence-only design avoids.
-
-const attemptCounts: Record<string, number> = {};
-
-/**
- * Record that the resolver-shadow tripwire ran for `opLabel`, regardless of
- * outcome (parity or divergence). No flag check of its own — only ever called
- * from inside the three emit functions below, after their own
- * STUDIO_SDK_RESOLVER_SHADOW_ENABLED guard, so it's already flag-gated.
- */
-export function recordAttempt(opLabel: string): void {
-  attemptCounts[opLabel] = (attemptCounts[opLabel] ?? 0) + 1;
-  ensureAttemptFlushScheduled();
-}
-
-/**
- * Return the accumulated attempt counts since the last flush (or `null` if
- * nothing has been recorded — no point emitting an empty rollup), and reset
- * the counter to empty.
- */
-export function flushAttemptCounts(): Record<string, number> | null {
-  const keys = Object.keys(attemptCounts);
-  if (keys.length === 0) return null;
-  const snapshot: Record<string, number> = {};
-  for (const key of keys) {
-    snapshot[key] = attemptCounts[key];
-    delete attemptCounts[key];
-  }
-  return snapshot;
-}
-
-const ATTEMPT_FLUSH_INTERVAL_MS = 5 * 60_000;
-let attemptFlushTimer: ReturnType<typeof setInterval> | null = null;
-let attemptVisibilityHandler: (() => void) | null = null;
-
-function flushAndEmitAttempts(): void {
-  const counts = flushAttemptCounts();
-  if (counts === null) return;
-  trackStudioEvent("sdk_resolver_shadow_attempt", { counts: JSON.stringify(counts) });
-}
-
-// Lazily starts the rollup timer + visibilitychange listener on the FIRST
-// attempt in a session — mirrors studioTelemetry.ts's own lazy flushTimer
-// start, so a session that never exercises the tripwire never runs a
-// background timer.
-function ensureAttemptFlushScheduled(): void {
-  if (!attemptFlushTimer) {
-    attemptFlushTimer = setInterval(flushAndEmitAttempts, ATTEMPT_FLUSH_INTERVAL_MS);
-  }
-  if (!attemptVisibilityHandler && typeof document !== "undefined") {
-    attemptVisibilityHandler = () => {
-      if (document.visibilityState !== "hidden") return;
-      flushAndEmitAttempts();
-      // studioTelemetry.ts registers its own visibilitychange listener (on
-      // window, at module load) that drains its queue via sendBeacon. Listener
-      // execution order between that handler and this one (on document,
-      // registered lazily) is not something to rely on — whichever runs
-      // first could otherwise beacon-flush before or after this rollup lands
-      // in the queue. Forcing a beacon flush here makes delivery of this
-      // rollup event correct regardless of that order.
-      flushViaBeacon();
-    };
-    document.addEventListener("visibilitychange", attemptVisibilityHandler);
-  }
-}
-
-/**
- * Test-only: clears the lazy timer/listener singleton state so tests can
- * verify the "starts on first attempt" behavior in isolation, without an
- * earlier test's real-timer interval (or visibilitychange listener) silently
- * surviving into a later test. Does NOT touch attemptCounts — only the
- * scheduling state. Not part of the public module contract; only imported
- * from sdkResolverShadow.test.ts.
- */
-export function __resetAttemptSchedulingForTests(): void {
-  if (attemptFlushTimer) clearInterval(attemptFlushTimer);
-  attemptFlushTimer = null;
-  if (attemptVisibilityHandler && typeof document !== "undefined") {
-    document.removeEventListener("visibilitychange", attemptVisibilityHandler);
-  }
-  attemptVisibilityHandler = null;
-}
+// Attempt counting (the soak-gate denominator) lives in sdkResolverAttempts.ts;
+// re-exported here so existing consumers/tests keep one import surface.
+export {
+  recordAttempt,
+  flushAttemptCounts,
+  __resetAttemptSchedulingForTests,
+} from "./sdkResolverAttempts";
+import { recordAttempt } from "./sdkResolverAttempts";
 
 // ─── Telemetry ────────────────────────────────────────────────────────────────
 
@@ -385,10 +305,24 @@ export function runResolverShadow(
   hfId: string | null | undefined,
   ops: PatchOperation[],
   sourceContent?: string,
+  paths?: { targetPath?: string; compositionPath?: string | null },
 ): void {
   if (!STUDIO_SDK_RESOLVER_SHADOW_ENABLED) return;
   if (!hfId) return;
   try {
+    // Cross-file edit: the session models ONLY the active composition, so a
+    // target living in another file is structurally unresolvable — the cutover
+    // gates decline it (wrongCompositionFile) and it can never cut over. Skip
+    // entirely (no event, no attempt), mirroring the empty-session rule below.
+    // PostHog 0.7.41: one cross-file editing session emitted 479 false
+    // element_not_found events through this path.
+    if (
+      paths?.targetPath !== undefined &&
+      paths.compositionPath != null &&
+      paths.targetPath !== paths.compositionPath
+    ) {
+      return;
+    }
     if (reportEmptySession(session, "dom-edit")) return;
     recordAttempt("dom-edit");
     const mismatches = sdkResolverShadowCheck(session, hfId, ops, sourceContent);
@@ -505,11 +439,48 @@ export async function recordResolverParity(
  *
  * No-op when the shadow flag is off; never throws; never mutates the session.
  */
-export function recordAnimationResolverParity(
+/**
+ * Disk-truth disambiguation for a missed animationId: the GSAP panel computes
+ * animationIds from the CURRENT on-disk script (the server read path re-reads
+ * per render), while the session's parsed id space reflects the last session
+ * reload. An edit that shifts tween positions shifts every
+ * `selector-method-position` id, so a panel op landing before the reload
+ * targets an id the session has never seen — a sync gap, not a resolver bug
+ * (the 0.7.48 keyframe-op class). `staleSession` = a fresh parse of the file
+ * resolves the id (suppress); `diskChecked` = the fresh parse ran and ALSO
+ * missed (a trustworthy real divergence); read errors fail open.
+ */
+async function checkAnimationIdOnDisk(
+  animationId: string,
+  readSource: () => Promise<string | undefined>,
+): Promise<{ staleSession: boolean; diskChecked: boolean; sourceReadFailed: boolean }> {
+  let source: string | undefined;
+  try {
+    source = await readSource();
+  } catch {
+    return { staleSession: false, diskChecked: false, sourceReadFailed: true };
+  }
+  if (source === undefined) {
+    return { staleSession: false, diskChecked: false, sourceReadFailed: false };
+  }
+  const disk = await openComposition(source, { history: false });
+  try {
+    return {
+      staleSession: disk.getAllAnimationIds().has(animationId),
+      diskChecked: true,
+      sourceReadFailed: false,
+    };
+  } finally {
+    disk.dispose();
+  }
+}
+
+export async function recordAnimationResolverParity(
   session: Composition | null | undefined,
   animationId: string,
   opLabel: string,
-): void {
+  readSource?: () => Promise<string | undefined>,
+): Promise<void> {
   if (!STUDIO_SDK_RESOLVER_SHADOW_ENABLED) return;
   if (!session || !animationId) return;
   try {
@@ -519,10 +490,25 @@ export function recordAnimationResolverParity(
       elements.some((el) => el.animationIds.includes(animationId)) ||
       session.getAllAnimationIds().has(animationId);
     if (resolves) return; // SDK locates the animation — parity
+    // Capture BEFORE any await (fire-and-forget caller mutates right after).
+    const sessionElementCount = elements.length;
+    let diskChecked = false;
+    let sourceReadFailed = false;
+    if (readSource) {
+      const verdict = await checkAnimationIdOnDisk(animationId, readSource);
+      if (verdict.staleSession) return; // sync gap, not a resolver bug — suppress
+      diskChecked = verdict.diskChecked;
+      sourceReadFailed = verdict.sourceReadFailed;
+    }
     trackStudioEvent("sdk_resolver_shadow", {
       animationId,
       opLabel,
-      sessionElementCount: elements.length,
+      sessionElementCount,
+      // The id missed a fresh parse of the on-disk file too — this is a real
+      // resolver divergence, not session staleness. Absent when no reader was
+      // wired or the read failed (see sourceReadFailed).
+      ...(diskChecked ? { diskChecked: true } : {}),
+      ...(sourceReadFailed ? { sourceReadFailed: true } : {}),
       mismatchCount: 1,
       mismatches: JSON.stringify([
         { kind: "animation_not_found", animationId } satisfies SdkResolverMismatch,

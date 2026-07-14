@@ -562,6 +562,100 @@ describe("G. recordAnimationResolverParity", () => {
     recordAnimationResolverParity(session, unmatchedId, "removeAllKeyframes");
     expect(trackedEvents.filter((e) => e.event === "sdk_resolver_shadow")).toHaveLength(0);
   });
+
+  // ── Stale-session disambiguation (the 0.7.48 keyframe-op class) ─────────────
+  // The GSAP panel computes animationIds from the CURRENT on-disk script (the
+  // server read path re-reads per render), but the session's parsed id space
+  // reflects the last session reload. An edit that shifts tween positions
+  // shifts every `selector-method-position` id, so a panel op landing between
+  // the write and the session reload targets an id the session has never seen.
+  // That is a sync gap, not a resolver bug — disambiguate against disk truth.
+
+  // Same tween, position moved 0→3: every id in the NEW script differs from
+  // the ids the OLD (session) script parses to.
+  const GSAP_DISK_MOVED_HTML = /* html */ `<!DOCTYPE html>
+<html><body>
+  <div data-hf-id="hf-box" style="color: red">Hello</div>
+  <script>var tl = gsap.timeline({ paused: true }); tl.to("[data-hf-id=\\"hf-box\\"]", { x: 100, duration: 1 }, 3);</script>
+</body></html>`;
+
+  it("suppresses the emit when the animationId resolves against the on-disk script (stale session)", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    const session = await openComposition(GSAP_HTML); // session parsed the OLD script
+    const disk = await openComposition(GSAP_DISK_MOVED_HTML);
+    const diskId = [...disk.getAllAnimationIds()][0] ?? "";
+    disk.dispose();
+    expect(diskId).not.toBe("");
+    expect(session.getAllAnimationIds().has(diskId)).toBe(false); // session can't see it
+    await recordAnimationResolverParity(session, diskId, "removeGsapKeyframe", () =>
+      Promise.resolve(GSAP_DISK_MOVED_HTML),
+    );
+    expect(trackedEvents.filter((e) => e.event === "sdk_resolver_shadow")).toHaveLength(0);
+  });
+
+  it("emits with diskChecked when the animationId resolves in NEITHER session nor disk", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    const session = await openComposition(GSAP_HTML);
+    await recordAnimationResolverParity(session, "no-such-anim", "removeGsapKeyframe", () =>
+      Promise.resolve(GSAP_DISK_MOVED_HTML),
+    );
+    const ev = lastShadow();
+    expect(ev?.mismatchCount).toBe(1);
+    expect(ev?.diskChecked).toBe(true);
+    expect(JSON.stringify(ev?.mismatches)).toContain("animation_not_found");
+  });
+
+  it("fails open with sourceReadFailed when the reader throws", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    const session = await openComposition(GSAP_HTML);
+    await recordAnimationResolverParity(session, "no-such-anim", "removeGsapKeyframe", () =>
+      Promise.reject(new Error("read failed")),
+    );
+    const ev = lastShadow();
+    expect(ev?.mismatchCount).toBe(1);
+    expect(ev?.sourceReadFailed).toBe(true);
+    expect(ev?.diskChecked).toBeUndefined();
+  });
+});
+
+// ─── G2. runResolverShadow cross-file guard ───────────────────────────────────
+// PostHog 0.7.41: one session emitted 479 element_not_found because the user
+// edited elements whose sourceFile differed from the active composition — the
+// session models ONLY the active comp, so cross-file targets are structurally
+// unresolvable. The cutover gates already decline via wrongCompositionFile;
+// the tripwire must skip the same way (no event, no attempt — the op can't
+// cut over, so it belongs in neither side of the soak rate).
+describe("G2. runResolverShadow cross-file guard", () => {
+  const ops: PatchOperation[] = [{ type: "inline-style", property: "color", value: "blue" }];
+
+  it("skips entirely when targetPath differs from the session's composition", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    flushAttemptCounts();
+    const session = await openComposition(BASE_HTML);
+    runResolverShadow(session, "hf-cross", ops, undefined, {
+      targetPath: "compositions/sample-vote-count.html",
+      compositionPath: "templates/document-card.html",
+    });
+    expect(trackedEvents.filter((e) => e.event === "sdk_resolver_shadow")).toHaveLength(0);
+    expect(flushAttemptCounts()).toBeNull();
+  });
+
+  it("still emits for a same-file divergence", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    const session = await openComposition(BASE_HTML);
+    runResolverShadow(session, "hf-missing", ops, undefined, {
+      targetPath: "index.html",
+      compositionPath: "index.html",
+    });
+    expect(trackedEvents.filter((e) => e.event === "sdk_resolver_shadow")).toHaveLength(1);
+  });
+
+  it("runs normally when paths are not supplied (status quo)", async () => {
+    mockFlags.STUDIO_SDK_RESOLVER_SHADOW_ENABLED = true;
+    const session = await openComposition(BASE_HTML);
+    runResolverShadow(session, "hf-missing", ops);
+    expect(trackedEvents.filter((e) => e.event === "sdk_resolver_shadow")).toHaveLength(1);
+  });
 });
 
 // ─── H. Inlined sub-composition: bare leaf id resolves (regression) ───────────
