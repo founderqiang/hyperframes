@@ -359,6 +359,7 @@ export function FlatColorGradingSection({
               </span>
               <select
                 data-flat-grade-lut-select="true"
+                aria-label="Custom LUT"
                 value={lut?.src ?? ""}
                 onChange={(e) => {
                   const src = e.target.value;
@@ -525,6 +526,7 @@ export function FlatColorGradingSection({
           <span className="flex items-center gap-1.5 text-[11px] text-panel-text-2">
             Copy grade to
             <select
+              aria-label="Copy grade to"
               value={applyScope}
               onChange={(e) => onSetApplyScope(e.target.value as "source-file" | "project")}
               disabled={applyBusy}

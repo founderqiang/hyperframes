@@ -278,6 +278,7 @@ describe("FlatColorGradingSection — Preset + LUT", () => {
     act(() => lutToggle?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const lutSelect = host.querySelector<HTMLSelectElement>('[data-flat-grade-lut-select="true"]');
     if (!lutSelect) throw new Error("expected a LUT catalog select");
+    expect(lutSelect.getAttribute("aria-label")).toBe("Custom LUT");
     act(() => {
       lutSelect.value = "assets/luts/cool.cube";
       lutSelect.dispatchEvent(new Event("change", { bubbles: true }));
@@ -609,6 +610,13 @@ describe("FlatColorGradingSection — HDR banner and Apply scope", () => {
     expect(applyButton?.disabled).toBe(false);
     act(() => applyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onApplyToScope).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it("gives the Copy-grade-to scope select an accessible name — the visible text sits in a sibling span, not a <label>", () => {
+    const { host, root } = renderInto(<FlatColorGradingSection {...neutralPropsBase()} />);
+    const scopeSelect = host.querySelector<HTMLSelectElement>('[aria-label="Copy grade to"]');
+    expect(scopeSelect).not.toBeNull();
     act(() => root.unmount());
   });
 });

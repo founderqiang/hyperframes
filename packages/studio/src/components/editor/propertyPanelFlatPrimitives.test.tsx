@@ -429,6 +429,50 @@ describe("FlatSlider", () => {
     expect(onCommit).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
+
+  it("still commits the release position when releasePointerCapture synchronously fires lostpointercapture (real-browser behavior happy-dom doesn't replicate)", () => {
+    const onCommit = vi.fn();
+    const { host, root } = renderInto(
+      <FlatSlider
+        label="Opacity"
+        value={10}
+        min={0}
+        max={100}
+        tier="explicitCustom"
+        displayValue="10%"
+        onCommit={onCommit}
+      />,
+    );
+    const track = host.querySelector<HTMLElement>('[data-flat-slider-track="true"]');
+    if (!track) throw new Error("expected a track element");
+    Object.defineProperty(track, "getBoundingClientRect", {
+      value: () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 }),
+    });
+    // Real browsers fire lostpointercapture SYNCHRONOUSLY, mid-call, when
+    // releasePointerCapture() is invoked — happy-dom does not replicate this,
+    // so patch it in to reproduce the exact reentrancy hazard onPointerUp
+    // must guard against.
+    const originalRelease = track.releasePointerCapture.bind(track);
+    track.releasePointerCapture = (pointerId: number) => {
+      originalRelease(pointerId);
+      track.dispatchEvent(new Event("lostpointercapture", { bubbles: true }));
+    };
+    act(() => {
+      track.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 30, pointerId: 1 }),
+      );
+    });
+    act(() => {
+      track.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, clientX: 80, pointerId: 1 }),
+      );
+    });
+    // The real release position (80), not a rollback to the pre-drag value (10)
+    // caused by onLostPointerCapture resyncing mid-handler.
+    expect(onCommit).toHaveBeenLastCalledWith(80);
+    expect(track.getAttribute("aria-valuenow")).toBe("80");
+    act(() => root.unmount());
+  });
 });
 
 describe("FlatSlider — Grade extensions", () => {

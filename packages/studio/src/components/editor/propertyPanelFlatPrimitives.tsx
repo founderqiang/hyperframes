@@ -305,6 +305,19 @@ export function FlatSlider({
   // depend on ordering between the native event and the [value] effect.
   const latestValueRef = useRef(value);
   latestValueRef.current = value;
+  // releasePointerCapture() (called explicitly below in onPointerUp/
+  // onPointerCancel) fires lostpointercapture SYNCHRONOUSLY in real
+  // browsers — i.e. onLostPointerCapture runs mid-onPointerUp, BEFORE
+  // onPointerUp's own draggingRef check and final commitDraft. Without this
+  // flag, a NORMAL release would have onLostPointerCapture reset
+  // draggingRef/draft to the stale value first, making onPointerUp's own
+  // "if (!draggingRef.current) return" bail out and silently drop the
+  // real final-position commit. Set right before each explicit release
+  // call so onLostPointerCapture can tell "our own release, the caller's
+  // own logic already handles it" apart from a genuine EXTERNAL capture
+  // loss (another element steals it, or the browser reclaims it for a
+  // scroll/touch gesture) where no other handler is about to run.
+  const explicitReleaseRef = useRef(false);
 
   useEffect(() => {
     if (draggingRef.current) return;
@@ -390,6 +403,7 @@ export function FlatSlider({
         }}
         onPointerUp={(e) => {
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            explicitReleaseRef.current = true;
             e.currentTarget.releasePointerCapture(e.pointerId);
           }
           if (disabled) return;
@@ -406,19 +420,27 @@ export function FlatSlider({
         onPointerCancel={(e) => {
           draggingRef.current = false;
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            explicitReleaseRef.current = true;
             e.currentTarget.releasePointerCapture(e.pointerId);
           }
         }}
         onLostPointerCapture={() => {
-          // Capture can be lost without either pointerup or pointercancel
-          // firing first (e.g. another element steals it, or the browser
-          // reclaims it for a scroll/touch gesture). Resync immediately and
-          // directly from latestValueRef, rather than only clearing
-          // draggingRef and waiting for the [value] effect to notice —
-          // that effect depends on `value` actually changing again to
-          // re-run, so if this event and any concurrent value update are
-          // ordered unfavorably, the knob could otherwise stay stuck at
-          // its mid-drag position indefinitely.
+          if (explicitReleaseRef.current) {
+            // Our own onPointerUp/onPointerCancel just released capture —
+            // their own logic already handles (or intentionally leaves)
+            // draggingRef/draft correctly. Resyncing here too would race
+            // onPointerUp's still-pending final commitDraft(stepped) below
+            // this call, since draggingRef flipping false would make its
+            // own "if (!draggingRef.current) return" bail out first.
+            explicitReleaseRef.current = false;
+            return;
+          }
+          // A genuine EXTERNAL capture loss (another element steals it, or
+          // the browser reclaims it for a scroll/touch gesture) — no other
+          // handler is about to run, so resync immediately and directly
+          // from latestValueRef rather than only clearing draggingRef and
+          // waiting for the [value] effect to notice (that effect depends
+          // on `value` actually changing again to re-run).
           draggingRef.current = false;
           setDraft(latestValueRef.current);
           lastCommittedRef.current = latestValueRef.current;

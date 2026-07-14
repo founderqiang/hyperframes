@@ -207,10 +207,8 @@ export function useColorGradingController({
   // out from under B's newer optimistic state.
   const gradingVersionRef = useRef(0);
   const statusTimersRef = useRef<number[]>([]);
-  const onSetAttributeLiveRef = useRef(onSetAttributeLive);
   const latestGradingRef = useRef(grading);
   const compareEnabledRef = useRef(compareEnabled);
-  onSetAttributeLiveRef.current = onSetAttributeLive;
   latestGradingRef.current = grading;
   compareEnabledRef.current = compareEnabled;
 
@@ -258,6 +256,12 @@ export function useColorGradingController({
   // instance (for the NEW identity) is established.
   useEffect(() => {
     return () => {
+      // Stale runtime-status timers scheduled for the OUTGOING element must
+      // not fire after this: readRuntimeColorGradingStatus closes over
+      // `target`, so an old timer firing post-switch would stamp the NEW
+      // element's runtimeStatus with the OLD element's answer.
+      for (const timer of statusTimersRef.current) clearTimeout(timer);
+      statusTimersRef.current = [];
       if (persistTimerRef.current) {
         clearTimeout(persistTimerRef.current);
         persistTimerRef.current = null;
@@ -349,6 +353,11 @@ export function useColorGradingController({
       attemptedGrading: NormalizedHfColorGrading,
       attemptIdentityKey: string,
       isLatestAttempt: () => boolean,
+      setAttributeLive: (
+        attr: string,
+        value: string | null,
+        onSettled?: (ok: boolean) => void,
+      ) => void | Promise<void>,
     ) => {
       // Two guards, not one: identity (selection moved to a DIFFERENT
       // element — that element already got its own confirmedGradingRef
@@ -378,11 +387,12 @@ export function useColorGradingController({
       // handler here alone would be dead code against the actual Studio
       // callback. The `.catch` below is a fallback for any OTHER
       // implementation of onSetAttributeLive that rejects instead.
-      const result = onSetAttributeLiveRef.current(
-        COLOR_GRADING_DATA_KEY,
-        value ?? null,
-        applySettled,
-      );
+      // `setAttributeLive` is passed in by the caller rather than read from a
+      // ref: a debounced persist for element A must call the callback that
+      // was live when A's edit was SCHEDULED, not whatever the ref holds by
+      // the time the timer fires — a "latest" ref would let a stale timer
+      // wrongly target a since-selected element B's callback.
+      const result = setAttributeLive(COLOR_GRADING_DATA_KEY, value ?? null, applySettled);
       return trackStudioPendingEdit(
         Promise.resolve(result).then(
           () => undefined,
@@ -403,12 +413,22 @@ export function useColorGradingController({
     const attemptedGrading = pendingPersistGradingRef.current ?? latestGradingRef.current;
     pendingPersistValueRef.current = undefined;
     pendingPersistGradingRef.current = null;
-    // A direct flush (unmount / explicit "flush all pending edits") reads
-    // pendingPersistValueRef synchronously right now, not a stored version
-    // from an earlier commit — there's nothing else it could be racing
-    // against, so it's trivially "the latest attempt" by construction.
-    return persistColorGradingValue(value, attemptedGrading, identityKeyRef.current, () => true);
-  }, [persistColorGradingValue]);
+    // A flush cancels the pending debounce timer above, so this becomes the
+    // one-and-only in-flight attempt for this element — bump the version so
+    // it still registers as "the latest attempt" against the same guard a
+    // regular debounced commit uses, instead of unconditionally claiming
+    // that title. Without this, a newer edit landing after the flush starts
+    // but before it settles would have its own eventual settle silently
+    // lose the version race to this unconditionally-"latest" flush.
+    const isLatestAttempt = bumpDomEditCommitVersion(gradingVersionRef);
+    return persistColorGradingValue(
+      value,
+      attemptedGrading,
+      identityKeyRef.current,
+      isLatestAttempt,
+      onSetAttributeLive,
+    );
+  }, [onSetAttributeLive, persistColorGradingValue]);
 
   useEffect(() => addStudioPendingEditFlushListener(flushPendingPersist), [flushPendingPersist]);
 
@@ -513,10 +533,17 @@ export function useColorGradingController({
           attemptedGrading,
           attemptIdentityKey,
           isLatestAttempt,
+          onSetAttributeLive,
         );
       }, 350);
     },
-    [persistColorGradingValue, postColorGrading, postCompare, scheduleRuntimeStatusRefresh],
+    [
+      onSetAttributeLive,
+      persistColorGradingValue,
+      postColorGrading,
+      postCompare,
+      scheduleRuntimeStatusRefresh,
+    ],
   );
 
   const commitCompare = useCallback(
