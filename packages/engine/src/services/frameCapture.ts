@@ -203,32 +203,38 @@ export interface CaptureSession {
  */
 /**
  * Structured detail carried alongside the human-readable message — lets
- * telemetry report the actual failing dB / frame index instead of the
- * orchestrator having to regex them back out of formatted text. All optional:
- * a blank-frame trip has no PSNR score, so `failedDb`/`verifyThresholdDb`
- * are omitted for that throw site.
+ * telemetry report the actual failure kind / failing dB / frame index
+ * instead of the orchestrator having to regex them back out of formatted
+ * text (a message-text dependency is exactly the failure mode this shape
+ * exists to close — review finding: message wording, translation, or a
+ * cross-module/serialized error must never be able to flip the reported
+ * kind). All fields but `kind` are optional: a blank-frame trip has no PSNR
+ * score, so `failedDb`/`verifyThresholdDb` are omitted for that throw site.
  */
 export interface DrawElementVerificationDetails {
+  kind: "blank" | "psnr";
   frameIndex?: number;
   failedDb?: number;
   verifyThresholdDb?: number;
 }
 
 export class DrawElementVerificationError extends Error {
+  readonly kind: "blank" | "psnr";
   readonly frameIndex?: number;
   readonly failedDb?: number;
   readonly verifyThresholdDb?: number;
 
-  constructor(message: string, details?: DrawElementVerificationDetails) {
+  constructor(message: string, details: DrawElementVerificationDetails) {
     super(message);
     this.name = "DrawElementVerificationError";
     // Discriminant property, assigned dynamically: isDrawElementVerificationError
     // reads it structurally so detection survives duplicated module instances
     // across package boundaries (where instanceof fails).
     (this as unknown as { deVerificationFailure: boolean }).deVerificationFailure = true;
-    this.frameIndex = details?.frameIndex;
-    this.failedDb = details?.failedDb;
-    this.verifyThresholdDb = details?.verifyThresholdDb;
+    this.kind = details.kind;
+    this.frameIndex = details.frameIndex;
+    this.failedDb = details.failedDb;
+    this.verifyThresholdDb = details.verifyThresholdDb;
   }
 }
 
@@ -255,7 +261,14 @@ export function getDrawElementVerificationDetails(
   for (let depth = 0; depth < 5 && typeof e === "object" && e !== null; depth++) {
     const rec = e as { deVerificationFailure?: boolean } & Partial<DrawElementVerificationDetails>;
     if (rec.deVerificationFailure === true) {
-      const details: DrawElementVerificationDetails = {};
+      // Every construction path sets `kind` (required on the constructor), so
+      // this only defends against a malformed cross-module-instance shape —
+      // treat anything other than exactly "blank" as "psnr", the same
+      // fallback polarity the old message regex had, but driven by a
+      // structural field instead of parsing text.
+      const details: DrawElementVerificationDetails = {
+        kind: rec.kind === "blank" ? "blank" : "psnr",
+      };
       if (typeof rec.frameIndex === "number") details.frameIndex = rec.frameIndex;
       if (typeof rec.failedDb === "number") details.failedDb = rec.failedDb;
       if (typeof rec.verifyThresholdDb === "number")

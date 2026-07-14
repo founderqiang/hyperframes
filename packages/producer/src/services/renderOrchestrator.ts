@@ -2729,15 +2729,17 @@ export async function executeRenderJob(
             throw err;
           const isMemoryExhaustion = !isVerifyError && isMemoryExhaustionError(err);
           deSelfVerifyFallback = isVerifyError;
+          // `kind` is a structural field on the error (DrawElementVerificationDetails),
+          // never derived from message text — a reworded message, a translated
+          // string, or a cross-module/serialized error must never be able to
+          // flip "blank" into "psnr" or vice versa (review finding).
+          const verifyDetails = isVerifyError ? getDrawElementVerificationDetails(err) : undefined;
           deFallbackReason = isVerifyError
-            ? /blank/i.test(err instanceof Error ? err.message : "")
-              ? "blank"
-              : "psnr"
+            ? (verifyDetails?.kind ?? "psnr")
             : isMemoryExhaustion
               ? "oom"
               : "capture_error";
           if (isVerifyError) {
-            const verifyDetails = getDrawElementVerificationDetails(err);
             deFallbackFailedDb = roundDb(verifyDetails?.failedDb);
             deFallbackFrameIndex = verifyDetails?.frameIndex;
             deFallbackThresholdDb = roundDb(verifyDetails?.verifyThresholdDb);
