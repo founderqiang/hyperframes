@@ -101,6 +101,59 @@ describe("FlatTimingRow", () => {
     expect(onSetAttribute).toHaveBeenCalledWith("start", "10.00");
     act(() => root.unmount());
   });
+
+  it("pins an inferred range through ONE atomic onSetAttributes call when provided, instead of two sequential onSetAttribute calls", async () => {
+    const onSetAttribute = vi.fn();
+    const onSetAttributes = vi.fn().mockResolvedValue(undefined);
+    const element = baseElement({ dataAttributes: { start: "0", duration: "0" } });
+    const { host, root } = renderInto(
+      <FlatTimingRow
+        element={element}
+        animations={[{ position: 2, duration: 3 } as never]}
+        onSetAttribute={onSetAttribute}
+        onSetAttributes={onSetAttributes}
+      />,
+    );
+    // Range is inferred (start=2, duration=3) — editing Start alone must pin
+    // the WHOLE range (both attrs), not just data-start.
+    const startInput = host.querySelectorAll("input")[0];
+    if (!startInput) throw new Error("expected a Start input");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(startInput, "5s");
+      startInput.dispatchEvent(new Event("input", { bubbles: true }));
+      startInput.dispatchEvent(new Event("focusout", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(onSetAttributes).toHaveBeenCalledTimes(1);
+    expect(onSetAttributes).toHaveBeenCalledWith(element, { start: "5.00", duration: "3.00" });
+    expect(onSetAttribute).not.toHaveBeenCalled();
+    act(() => root.unmount());
+  });
+
+  it("falls back to two sequential onSetAttribute calls to pin an inferred range when onSetAttributes is not provided", async () => {
+    const onSetAttribute = vi.fn().mockResolvedValue(undefined);
+    const element = baseElement({ dataAttributes: { start: "0", duration: "0" } });
+    const { host, root } = renderInto(
+      <FlatTimingRow
+        element={element}
+        animations={[{ position: 2, duration: 3 } as never]}
+        onSetAttribute={onSetAttribute}
+      />,
+    );
+    const startInput = host.querySelectorAll("input")[0];
+    if (!startInput) throw new Error("expected a Start input");
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(startInput, "5s");
+      startInput.dispatchEvent(new Event("input", { bubbles: true }));
+      startInput.dispatchEvent(new Event("focusout", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(onSetAttribute).toHaveBeenNthCalledWith(1, "start", "5.00");
+    expect(onSetAttribute).toHaveBeenNthCalledWith(2, "duration", "3.00");
+    act(() => root.unmount());
+  });
 });
 
 describe("FlatMotionSection", () => {

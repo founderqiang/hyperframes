@@ -77,6 +77,7 @@ export function PropertyPanelFlat({
   onUngroup,
   onSetStyle,
   onSetAttribute,
+  onSetAttributes,
   onSetAttributeLive,
   onApplyColorGradingScope,
   onSetHtmlAttribute,
@@ -145,6 +146,7 @@ export function PropertyPanelFlat({
   | "onUngroup"
   | "onSetStyle"
   | "onSetAttribute"
+  | "onSetAttributes"
   | "onSetAttributeLive"
   | "onApplyColorGradingScope"
   | "onSetHtmlAttribute"
@@ -440,6 +442,7 @@ export function PropertyPanelFlat({
           multipleTimelines={gsapMultipleTimelines}
           unsupportedTimelinePattern={gsapUnsupportedTimelinePattern}
           onSetAttribute={onSetAttribute}
+          onSetAttributes={onSetAttributes}
           {...(gsapEffectHandlers ?? EMPTY_GSAP_EFFECT_HANDLERS)}
         />
       ),

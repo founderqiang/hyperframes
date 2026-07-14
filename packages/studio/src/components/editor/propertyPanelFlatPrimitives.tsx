@@ -441,11 +441,12 @@ export function FlatSlider({
           commitDraft(stepped);
         }}
         onPointerCancel={(e) => {
-          draggingRef.current = false;
-          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-            explicitReleaseRef.current = true;
-            e.currentTarget.releasePointerCapture(e.pointerId);
-          }
+          // A native pointercancel means the platform aborted the gesture (a
+          // scroll/touch takeover, pen leaving range, etc.) — that must cancel
+          // the drag the same way Escape/right-click do (revert to the
+          // pre-drag value), not just stop dragging and leave whatever
+          // intermediate position the pointer last reached committed.
+          cancelDrag(e.currentTarget);
         }}
         onLostPointerCapture={() => {
           if (explicitReleaseRef.current) {

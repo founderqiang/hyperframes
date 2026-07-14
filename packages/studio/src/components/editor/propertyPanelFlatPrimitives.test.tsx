@@ -553,6 +553,39 @@ describe("FlatSlider", () => {
     expect(track.hasPointerCapture(1)).toBe(false);
     act(() => root.unmount());
   });
+
+  it("a native pointercancel during a drag reverts to the pre-drag value, instead of leaving the last dragged-to position committed", () => {
+    const onCommit = vi.fn();
+    const { host, root } = renderInto(
+      <FlatSlider
+        label="Opacity"
+        value={10}
+        min={0}
+        max={100}
+        tier="explicitCustom"
+        displayValue="10%"
+        onCommit={onCommit}
+      />,
+    );
+    const track = host.querySelector<HTMLElement>('[data-flat-slider-track="true"]');
+    if (!track) throw new Error("expected a track element");
+    Object.defineProperty(track, "getBoundingClientRect", {
+      value: () => ({ left: 0, width: 100, top: 0, height: 20, right: 100, bottom: 20 }),
+    });
+    act(() => {
+      track.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, clientX: 65, pointerId: 1 }),
+      );
+    });
+    expect(onCommit).toHaveBeenLastCalledWith(65);
+    act(() => {
+      track.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 1 }));
+    });
+    expect(onCommit).toHaveBeenLastCalledWith(10);
+    expect(track.getAttribute("aria-valuenow")).toBe("10");
+    expect(track.hasPointerCapture(1)).toBe(false);
+    act(() => root.unmount());
+  });
 });
 
 describe("FlatSlider — Grade extensions", () => {

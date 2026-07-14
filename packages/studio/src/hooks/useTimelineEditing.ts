@@ -360,7 +360,6 @@ export function useTimelineEditing({
   const handleToggleElementHidden = useTimelineElementVisibilityEditing({
     projectIdRef,
     activeCompPath,
-    timelineElements,
     showToast,
     writeProjectFile,
     recordEdit,

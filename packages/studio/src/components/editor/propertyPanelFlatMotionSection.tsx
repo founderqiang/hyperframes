@@ -13,10 +13,17 @@ export function FlatTimingRow({
   element,
   animations = [],
   onSetAttribute,
+  onSetAttributes,
 }: {
   element: DomEditSelection;
   animations?: GsapAnimation[];
   onSetAttribute: (attr: string, value: string) => void | Promise<void>;
+  /** Commits start+duration together in ONE atomic persist call, bound to
+   *  THIS render's `element` explicitly — not whatever is "currently"
+   *  selected by the time the call resolves. Falls back to two sequential
+   *  `onSetAttribute` calls (with the same non-atomicity/misdirection risk
+   *  documented below) when the caller doesn't wire it up. */
+  onSetAttributes?: (selection: DomEditSelection, attrs: Record<string, string>) => Promise<void>;
 }) {
   const { start, duration, inferred: derived } = deriveElementTiming(element, animations);
   const end = start + duration;
@@ -25,10 +32,19 @@ export function FlatTimingRow({
   // WHOLE displayed range: writing only data-duration flips inference off and
   // drops start to data-start-or-0 (the clip silently shifts), and writing only
   // data-start is ignored while duration is still inferred (the edit looks
-  // dead). Pin both attributes, sequentially, so the display never jumps.
+  // dead). Pin both attributes in ONE atomic commit bound to THIS element —
+  // two sequential `onSetAttribute` calls would each resolve `domEditSelection`
+  // fresh from current hook state, so a selection change between the two
+  // awaits could misdirect the second write at the newly-selected element, and
+  // a failure of just the second call would leave the pair half-applied.
   const pinRange = async (nextStart: number, nextDuration: number) => {
-    await onSetAttribute("start", nextStart.toFixed(2));
-    await onSetAttribute("duration", nextDuration.toFixed(2));
+    const attrs = { start: nextStart.toFixed(2), duration: nextDuration.toFixed(2) };
+    if (onSetAttributes) {
+      await onSetAttributes(element, attrs);
+      return;
+    }
+    await onSetAttribute("start", attrs.start);
+    await onSetAttribute("duration", attrs.duration);
   };
 
   const commitStart = (nextValue: string) => {
@@ -92,6 +108,7 @@ export function FlatMotionSection({
   multipleTimelines,
   unsupportedTimelinePattern,
   onSetAttribute,
+  onSetAttributes,
   onAddAnimation,
   ...callbacks
 }: {
@@ -102,6 +119,7 @@ export function FlatMotionSection({
   multipleTimelines?: boolean;
   unsupportedTimelinePattern?: boolean;
   onSetAttribute: (attr: string, value: string) => void | Promise<void>;
+  onSetAttributes?: (selection: DomEditSelection, attrs: Record<string, string>) => Promise<void>;
   onAddAnimation: (method: "to" | "from" | "set" | "fromTo") => void;
 } & GsapAnimationEditCallbacks) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
@@ -109,7 +127,12 @@ export function FlatMotionSection({
   return (
     <div className="space-y-3">
       {showTiming && (
-        <FlatTimingRow element={element} animations={animations} onSetAttribute={onSetAttribute} />
+        <FlatTimingRow
+          element={element}
+          animations={animations}
+          onSetAttribute={onSetAttribute}
+          onSetAttributes={onSetAttributes}
+        />
       )}
       {showEffects && (
         <>

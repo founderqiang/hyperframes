@@ -195,6 +195,10 @@ export function useColorGradingController({
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingPersistValueRef = useRef<string | null | undefined>(undefined);
   const pendingPersistGradingRef = useRef<NormalizedHfColorGrading | null>(null);
+  // Identity the pending edit was made FOR, snapshotted at schedule time —
+  // read by a global flush instead of identityKeyRef.current, which may no
+  // longer describe this edit's element by the time the flush runs.
+  const pendingPersistIdentityRef = useRef<string | null>(null);
   // The last grading value actually confirmed saved — distinct from `grading`
   // (the optimistic value shown immediately on commit). A rejected persist
   // reverts to this instead of leaving the UI permanently showing a value
@@ -270,6 +274,7 @@ export function useColorGradingController({
       const value = pendingPersistValueRef.current;
       pendingPersistValueRef.current = undefined;
       pendingPersistGradingRef.current = null;
+      pendingPersistIdentityRef.current = null;
       trackStudioPendingEdit(onSetAttributeLive(COLOR_GRADING_DATA_KEY, value));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- identityKey is the intended trigger; see comment above
@@ -411,8 +416,13 @@ export function useColorGradingController({
     if (pendingPersistValueRef.current === undefined) return undefined;
     const value = pendingPersistValueRef.current;
     const attemptedGrading = pendingPersistGradingRef.current ?? latestGradingRef.current;
+    // Snapshotted at schedule time, not identityKeyRef.current read fresh
+    // here — an async flush could otherwise tag the attempt with whatever
+    // identity is "current" by then, not the one this edit was made for.
+    const attemptIdentityKey = pendingPersistIdentityRef.current ?? identityKeyRef.current;
     pendingPersistValueRef.current = undefined;
     pendingPersistGradingRef.current = null;
+    pendingPersistIdentityRef.current = null;
     // A flush cancels the pending debounce timer above, so this becomes the
     // one-and-only in-flight attempt for this element — bump the version so
     // it still registers as "the latest attempt" against the same guard a
@@ -424,7 +434,7 @@ export function useColorGradingController({
     return persistColorGradingValue(
       value,
       attemptedGrading,
-      identityKeyRef.current,
+      attemptIdentityKey,
       isLatestAttempt,
       onSetAttributeLive,
     );
@@ -513,6 +523,7 @@ export function useColorGradingController({
         ? serializeHfColorGrading(nextGrading)
         : null;
       pendingPersistGradingRef.current = nextGrading;
+      pendingPersistIdentityRef.current = identityKeyRef.current;
       // Captured now (edit time), not read fresh inside the timer — the
       // timer fires 350ms later and may run after selection has already
       // moved on, at which point identityKeyRef.current would no longer
@@ -527,6 +538,7 @@ export function useColorGradingController({
         const attemptedGrading = pendingPersistGradingRef.current ?? nextGrading;
         pendingPersistValueRef.current = undefined;
         pendingPersistGradingRef.current = null;
+        pendingPersistIdentityRef.current = null;
         persistTimerRef.current = null;
         void persistColorGradingValue(
           value ?? null,

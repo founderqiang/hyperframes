@@ -63,7 +63,7 @@ interface UseTimelineTrackVisibilityEditingInput extends Omit<
 
 interface UseTimelineElementVisibilityEditingInput extends Omit<
   ToggleTimelineElementHiddenInput,
-  "projectId" | "elementKey" | "hidden" | "previewIframe"
+  "projectId" | "elementKey" | "hidden" | "previewIframe" | "timelineElements"
 > {
   projectIdRef: ReadonlyRef<string | null>;
   previewIframeRef: ReadonlyRef<HTMLIFrameElement | null>;
@@ -322,7 +322,6 @@ export function useTimelineTrackVisibilityEditing({
 export function useTimelineElementVisibilityEditing({
   projectIdRef,
   activeCompPath,
-  timelineElements,
   showToast,
   writeProjectFile,
   recordEdit,
@@ -335,6 +334,15 @@ export function useTimelineElementVisibilityEditing({
   elementKey: string | readonly string[],
   hidden: boolean,
 ) => Promise<void> {
+  // Resolve against the EXPANDED rows, not the raw store list — a nested
+  // sub-composition child has no entry of its own in the raw list (only its
+  // host does), so an elementKey for such a child (the
+  // `sourceFile#domId`-shaped virtual key `resolveTimelineIdForSelection`
+  // falls back to) would never match anything there and Hide All would
+  // silently no-op for it. The expanded list synthesizes a real, patchable
+  // TimelineElement (with matching key/domId/sourceFile) for each visible
+  // child whenever its host is currently expanded.
+  const expandedElements = useExpandedTimelineElements();
   return useCallback(
     async (elementKey: string | readonly string[], hidden: boolean) => {
       if (isRecordingRef?.current) {
@@ -347,7 +355,7 @@ export function useTimelineElementVisibilityEditing({
         await toggleTimelineElementHidden({
           projectId: pid,
           activeCompPath,
-          timelineElements,
+          timelineElements: expandedElements,
           elementKey,
           hidden,
           previewIframe: previewIframeRef.current,
@@ -366,7 +374,7 @@ export function useTimelineElementVisibilityEditing({
     },
     [
       activeCompPath,
-      timelineElements,
+      expandedElements,
       previewIframeRef,
       writeProjectFile,
       recordEdit,

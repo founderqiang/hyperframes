@@ -1,12 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MutableRefObject,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, type MutableRefObject } from "react";
 import { PropertyPanel } from "./editor/PropertyPanel";
 import { LayersPanel } from "./editor/LayersPanel";
 import { CaptionPropertyPanel } from "../captions/components/CaptionPropertyPanel";
@@ -39,9 +31,7 @@ import {
 } from "./studioColorGradingScope";
 import type { BackgroundRemovalProgress } from "./editor/propertyPanelTypes";
 import { timelineKeysForSelections, type ToggleHiddenHandler } from "../utils/studioHelpers";
-
-const MIN_INSPECTOR_SPLIT_PERCENT = 20;
-const MAX_INSPECTOR_SPLIT_PERCENT = 75;
+import { useInspectorSplitResize } from "../hooks/useInspectorSplitResize";
 
 export interface StudioRightPanelProps {
   designPanelActive: boolean;
@@ -115,6 +105,7 @@ export function StudioRightPanel({
     handleDomAttributeCommit,
     handleDomAttributeLiveCommit,
     handleDomHtmlAttributeCommit,
+    handleDomAttributesCommit,
     handleDomPathOffsetCommit,
     handleDomBoxSizeCommit,
     handleDomRotationCommit,
@@ -184,13 +175,13 @@ export function StudioRightPanel({
     coalesceKey: activeCompPath ? `slideshow-notes:${activeCompPath}` : "slideshow-notes",
   });
 
-  const [layersPanePercent, setLayersPanePercent] = useState(40);
-  const splitContainerRef = useRef<HTMLDivElement>(null);
-  const splitDragRef = useRef<{
-    startY: number;
-    startPercent: number;
-    height: number;
-  } | null>(null);
+  const {
+    layersPanePercent,
+    splitContainerRef,
+    handleInspectorSplitResizeStart,
+    handleInspectorSplitResizeMove,
+    handleInspectorSplitResizeEnd,
+  } = useInspectorSplitResize();
   const backgroundRemovalAbortRef = useRef<AbortController | null>(null);
 
   useEffect(
@@ -230,35 +221,6 @@ export function StudioRightPanel({
     }
     toggleRightInspectorPane(pane);
   };
-
-  const handleInspectorSplitResizeStart = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
-      const height = splitContainerRef.current?.getBoundingClientRect().height ?? 0;
-      splitDragRef.current = {
-        startY: event.clientY,
-        startPercent: layersPanePercent,
-        height,
-      };
-    },
-    [layersPanePercent],
-  );
-
-  const handleInspectorSplitResizeMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    const drag = splitDragRef.current;
-    if (!drag || drag.height <= 0) return;
-    const deltaPercent = ((event.clientY - drag.startY) / drag.height) * 100;
-    const next = Math.min(
-      MAX_INSPECTOR_SPLIT_PERCENT,
-      Math.max(MIN_INSPECTOR_SPLIT_PERCENT, drag.startPercent + deltaPercent),
-    );
-    setLayersPanePercent(next);
-  }, []);
-
-  const handleInspectorSplitResizeEnd = useCallback(() => {
-    splitDragRef.current = null;
-  }, []);
 
   const handleApplyColorGradingScope = useCallback(
     async (scope: ColorGradingScope, value: string | null) =>
@@ -375,6 +337,7 @@ export function StudioRightPanel({
         onUngroup={handleUngroupSelection}
         onSetStyle={handleDomStyleCommit}
         onSetAttribute={handleDomAttributeCommit}
+        onSetAttributes={handleDomAttributesCommit}
         onSetAttributeLive={handleDomAttributeLiveCommit}
         onApplyColorGradingScope={handleApplyColorGradingScope}
         onSetHtmlAttribute={handleDomHtmlAttributeCommit}
