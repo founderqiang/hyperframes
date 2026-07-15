@@ -79,6 +79,10 @@ export {
   type CaptureMode,
   type AcquiredBrowser,
 } from "./services/browserManager.js";
+export {
+  augmentProtocolTimeoutError,
+  isProtocolTimeoutError,
+} from "./services/protocolTimeoutErrorHint.js";
 
 // ── Frame capture pipeline ──────────────────────────────────────────────────────
 export {

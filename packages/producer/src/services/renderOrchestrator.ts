@@ -78,6 +78,7 @@ import {
   isTransientBrowserError,
   isDrawElementVerificationError,
   getDrawElementVerificationDetails,
+  augmentProtocolTimeoutError,
 } from "@hyperframes/engine";
 import { join, dirname, resolve } from "path";
 import { totalmem } from "node:os";
@@ -3143,7 +3144,18 @@ export async function executeRenderJob(
     // Retry burn on a render that STILL failed — the actionable signal for tuning
     // MAX_TRANSIENT_CAPTURE_RETRIES (mirrors the success-path record above).
     recordTransientRetryObservability();
-    const errorMessage = memoryGuidance ?? normalizeErrorMessage(error);
+    // Surface HyperFrames' PRODUCER_PUPPETEER_PROTOCOL_TIMEOUT_MS env +
+    // --protocol-timeout CLI in Puppeteer CDP protocol-timeout errors. Puppeteer's
+    // stock "Runtime.callFunctionOn timed out. Increase the 'protocolTimeout'
+    // setting" text doesn't name the HyperFrames knob and doesn't state the
+    // effective timeout that was already applied (300000 ms base + auto-scaling
+    // via `scaleProtocolTimeoutForComposition`). Field signal ts=1784047847
+    // reporter gave up on HF and switched to FFmpeg because the error didn't
+    // point them at the lever. `augmentProtocolTimeoutError` returns the input
+    // unchanged when the message doesn't match, so non-timeout failures (memory
+    // exhaustion, other CDP errors) flow through with no change.
+    const protocolTimeoutError = augmentProtocolTimeoutError(error, cfg.protocolTimeout);
+    const errorMessage = memoryGuidance ?? normalizeErrorMessage(protocolTimeoutError);
     const carriedBrowserConsole = getCaptureStageBrowserConsole(error);
     if (carriedBrowserConsole.length > 0) {
       lastBrowserConsole = [...lastBrowserConsole, ...carriedBrowserConsole].slice(-200);
