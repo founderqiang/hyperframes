@@ -12,7 +12,10 @@ import { usePreviewVariablesStore } from "../hooks/previewVariablesStore";
 import type { RenderJob } from "./renders/useRenderQueue";
 import type { BlockParam } from "@hyperframes/core/registry";
 import type { IframeWindow } from "../player/lib/playbackTypes";
-import { STUDIO_INSPECTOR_PANELS_ENABLED } from "./editor/manualEditingAvailability";
+import {
+  STUDIO_FLAT_INSPECTOR_ENABLED,
+  STUDIO_INSPECTOR_PANELS_ENABLED,
+} from "./editor/manualEditingAvailability";
 import type { Composition } from "@hyperframes/sdk";
 import type { EditHistoryKind } from "../utils/editHistory";
 import { useSlideshowPersist, type UseSlideshowPersistParams } from "../hooks/useSlideshowPersist";
@@ -80,6 +83,7 @@ export function StudioRightPanel({
     setRightPanelTab,
     rightInspectorPanes,
     toggleRightInspectorPane,
+    setExclusiveRightInspectorPane,
     handlePanelResizeStart,
     handlePanelResizeMove,
     handlePanelResizeEnd,
@@ -221,6 +225,13 @@ export function StudioRightPanel({
   const handleInspectorPaneButtonClick = (pane: "design" | "layers") => {
     if (!inspectorTabActive) {
       setRightPanelTab(pane);
+      return;
+    }
+    // Flat inspector: Layers always renders full-height by itself (see the
+    // render branch below), so the two panes are mutually exclusive here —
+    // otherwise both tabs could show "active" while only one actually shows.
+    if (STUDIO_FLAT_INSPECTOR_ENABLED) {
+      setExclusiveRightInspectorPane(pane);
       return;
     }
     toggleRightInspectorPane(pane);
@@ -516,7 +527,7 @@ export function StudioRightPanel({
                   domEditSaveTimestampRef={domEditSaveTimestampRef}
                   recordEdit={recordEdit}
                 />
-              ) : layersPaneOpen && designPaneOpen ? (
+              ) : layersPaneOpen && designPaneOpen && !STUDIO_FLAT_INSPECTOR_ENABLED ? (
                 <div ref={splitContainerRef} className="flex h-full min-h-0 min-w-0 flex-col">
                   <div
                     className="min-h-[120px] overflow-hidden"

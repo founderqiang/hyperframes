@@ -96,6 +96,14 @@ export function usePanelLayout(initialState?: InitialPanelLayoutState) {
     });
   }, []);
 
+  // Radio-style variant for the flat inspector: Layers always renders full-
+  // height by itself there (never split-shared with Design), so leaving both
+  // panes independently toggleable would highlight both tabs as "active"
+  // while only one actually shows. Selecting one turns the other off.
+  const setExclusiveRightInspectorPane = useCallback((pane: RightInspectorPane) => {
+    setRightInspectorPanes({ design: pane === "design", layers: pane === "layers" });
+  }, []);
+
   return {
     leftWidth,
     setLeftWidth,
@@ -109,6 +117,7 @@ export function usePanelLayout(initialState?: InitialPanelLayoutState) {
     setRightPanelTab: trackedSetRightPanelTab,
     rightInspectorPanes,
     toggleRightInspectorPane,
+    setExclusiveRightInspectorPane,
     toggleLeftSidebar,
     handlePanelResizeStart,
     handlePanelResizeMove,
