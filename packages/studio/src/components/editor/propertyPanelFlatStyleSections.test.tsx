@@ -175,31 +175,43 @@ function setInputValue(input: HTMLInputElement, nextValue: string) {
 }
 
 describe("FlatStyleSection — Stroke and Radius", () => {
-  it("renders the combined stroke row and commits width+style together on blur", () => {
+  it("renders a width-only Stroke width row — style is only ever set through the Stroke style select below it", () => {
     const { host, root } = renderSection(STROKE_STYLES);
-    expect(host.textContent).toContain("Stroke");
-    expect(getFlatRowInput(host, "Stroke").value).toBe("1px solid");
+    expect(host.textContent).toContain("Stroke width");
+    expect(host.textContent).toContain("Stroke style");
+    expect(getFlatRowInput(host, "Stroke width").value).toBe("1px");
     act(() => root.unmount());
   });
 
-  it("commits the stroke row's new width and style together on blur", async () => {
+  it("commits a new stroke width without touching the existing style", async () => {
     const { host, root, onSetStyle } = renderSection(STROKE_STYLES);
-    await commitFlatRowInput(host, "Stroke", "2px dashed");
+    await commitFlatRowInput(host, "Stroke width", "2px");
     expect(onSetStyle).toHaveBeenCalledWith("border-width", "2px");
-    expect(onSetStyle).toHaveBeenCalledWith("border-style", "dashed");
+    expect(onSetStyle).not.toHaveBeenCalledWith("border-style", expect.anything());
+    act(() => root.unmount());
+  });
+
+  it("defaults a from-zero width commit to solid, since a width with no style renders no visible border", async () => {
+    const { host, root, onSetStyle } = renderSection({
+      "border-width": "0px",
+      "border-style": "none",
+      "border-color": "rgba(255,255,255,.12)",
+    });
+    await commitFlatRowInput(host, "Stroke width", "3px");
+    expect(onSetStyle).toHaveBeenCalledWith("border-style", "solid");
     act(() => root.unmount());
   });
 
   it("clamps an out-of-range stroke width commit to 200px (fix 2)", async () => {
     const { host, root, onSetStyle } = renderSection(STROKE_STYLES);
-    await commitFlatRowInput(host, "Stroke", "9999px solid");
+    await commitFlatRowInput(host, "Stroke width", "9999px");
     expect(onSetStyle).toHaveBeenCalledWith("border-width", "200px");
     act(() => root.unmount());
   });
 
-  it("rejects a stroke commit whose style token is not a valid border-style (fix 2)", async () => {
+  it("ignores an unparseable stroke width commit", async () => {
     const { host, root, onSetStyle } = renderSection(STROKE_STYLES);
-    await commitFlatRowInput(host, "Stroke", "12px bogus");
+    await commitFlatRowInput(host, "Stroke width", "bogus");
     expect(onSetStyle).not.toHaveBeenCalled();
     act(() => root.unmount());
   });
