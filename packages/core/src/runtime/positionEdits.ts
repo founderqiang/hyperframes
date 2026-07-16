@@ -185,7 +185,7 @@ export function applyPositionEdits(doc: Document, opts?: { force?: boolean }): n
   );
   for (let i = 0; i < orphaned.length; i++) {
     const el = orphaned[i];
-    if (!isStylable(el)) continue;
+    if (el === undefined || !isStylable(el)) continue;
     const original = el.getAttribute(EDIT_ORIGINAL_TRANSLATE_ATTR) ?? "";
     if (original === "") {
       el.style.removeProperty("translate");
@@ -200,7 +200,7 @@ export function applyPositionEdits(doc: Document, opts?: { force?: boolean }): n
   let applied = 0;
   for (let i = 0; i < marked.length; i++) {
     const el = marked[i];
-    if (!isStylable(el)) continue;
+    if (el === undefined || !isStylable(el)) continue;
     applyPositionEditToElement(el, opts);
     applied += 1;
   }
