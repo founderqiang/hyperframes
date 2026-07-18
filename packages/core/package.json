@@ -52,6 +52,12 @@
       "import": "./src/editing/affordances.ts",
       "types": "./src/editing/affordances.ts"
     },
+    "./editing/draft-markers": {
+      "bun": "./src/editing/draftMarkers.ts",
+      "node": "./dist/editing/draftMarkers.js",
+      "import": "./src/editing/draftMarkers.ts",
+      "types": "./src/editing/draftMarkers.ts"
+    },
     "./variables": {
       "bun": "./src/variables.ts",
       "node": "./dist/variables.js",
@@ -289,6 +295,10 @@
       "./editing": {
         "import": "./dist/editing/affordances.js",
         "types": "./dist/editing/affordances.d.ts"
+      },
+      "./editing/draft-markers": {
+        "import": "./dist/editing/draftMarkers.js",
+        "types": "./dist/editing/draftMarkers.d.ts"
       },
       "./figma": {
         "import": "./dist/figma/index.js",
